@@ -1,8 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-relay_python="$HOME/Library/Application Support/LocalVoiceRelay/runtime/.venv/bin/python"
-/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)' "$relay_python" - <<'PY'
+scripts/offline-python.sh - <<'PY'
 import socket
 try:
     connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

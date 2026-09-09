@@ -17,4 +17,13 @@ enum OfflineProcess {
         result["NUMBA_CACHE_DIR"] = PrivateStorage.directory.appendingPathComponent("runtime/cache/numba").path
         return result
     }
+
+    /// Every offline child runs under the same network-denying sandbox with the filtered environment; callers wire pipes and run it.
+    static func sandboxed(_ arguments: [String]) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
+        process.arguments = ["-p", sandboxProfile] + arguments
+        process.environment = environment()
+        return process
+    }
 }

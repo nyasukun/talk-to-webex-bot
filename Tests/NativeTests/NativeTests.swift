@@ -5,12 +5,6 @@ import RelayCore
 @testable import LocalVoiceRelay
 
 struct NativeTests {
-    @Test func referenceNoiseSettingMigratesAndPreservesAnExplicitOptOut() throws {
-        #expect(try PrivateStorage.decodeSettings(Data("{}".utf8)).reduceReferenceNoise)
-        let settings = try PrivateStorage.decodeSettings(Data(#"{"reduceReferenceNoise":false}"#.utf8))
-        #expect(!settings.reduceReferenceNoise)
-        #expect(try !PrivateStorage.decodeSettings(JSONEncoder().encode(settings)).reduceReferenceNoise)
-    }
     @Test @MainActor func sentencePlaybackBuffersPreserveEverySampleAndChannel() throws {
         let format = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 2)!
         let source = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 30001)!
@@ -24,37 +18,6 @@ struct NativeTests {
             let combined = parts.flatMap { Array(UnsafeBufferPointer(start: $0.floatChannelData![channel], count: Int($0.frameLength))) }
             #expect(combined == Array(UnsafeBufferPointer(start: source.floatChannelData![channel], count: 30001)))
         }
-    }
-    @Test func speechPromptMigrationPreservesCustomTextAndRunsOnce() throws {
-        let custom = "{{transcript}}\n簡潔に説明してください。"
-        let old = try JSONSerialization.data(withJSONObject: ["template": custom])
-        var migrated = try PrivateStorage.decodeSettings(old)
-        #expect(migrated.template == custom + "\n" + MessageTemplate.speechInstructions + "\n" + MessageTemplate.numberInstructions)
-        let twice = try PrivateStorage.decodeSettings(JSONEncoder().encode(migrated))
-        #expect(twice.template == migrated.template)
-        migrated.template = custom
-        #expect(try PrivateStorage.decodeSettings(JSONEncoder().encode(migrated)).template == custom)
-        for screen in [false, true] {
-            let rendered = try MessageTemplate.render(twice.template, transcript: "動作確認", ocr: "画面", screen: screen)
-            #expect(rendered.contains(MessageTemplate.speechInstructions))
-        }
-    }
-    @Test func pollIntervalMigratesOnlyTheOldDefaultAndRoundTripsMilliseconds() throws {
-        let migrated = try PrivateStorage.decodeSettings(Data(#"{"replyPollSeconds":2}"#.utf8))
-        #expect(migrated.replyPollMilliseconds == 100)
-        #expect(migrated.replySettleSeconds == 6)
-        let custom = try PrivateStorage.decodeSettings(Data(#"{"replyPollSeconds":3.5}"#.utf8))
-        #expect(custom.replyPollMilliseconds == 3500)
-        var current = Settings()
-        current.replyPollMilliseconds = 2000
-        let restored = try PrivateStorage.decodeSettings(JSONEncoder().encode(current))
-        #expect(restored.replyPollMilliseconds == 2000)
-        current.replyPollMilliseconds = 125
-        try current.validate()
-        #expect(current.replyPollSeconds == 0.125)
-        current.replyPollMilliseconds = 99
-        #expect(throws: (any Error).self) { try current.validate() }
-        #expect(try PrivateStorage.decodeSettings(Data("{}".utf8)).replyPollMilliseconds == 100)
     }
     @Test func sonarIsQuietAndHasSilentInterval() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")

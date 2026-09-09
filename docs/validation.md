@@ -128,16 +128,11 @@ scripts/build.sh
 scripts/render-ui.sh
 scripts/smoke-local.sh --voice
 scripts/smoke-local.sh --model whisper-large
-/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)' \
-  "$HOME/Library/Application Support/LocalVoiceRelay/runtime/.venv/bin/python" scripts/smoke-streaming.py
-/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)' \
-  "$HOME/Library/Application Support/LocalVoiceRelay/runtime/.venv/bin/python" scripts/smoke-preference.py
-/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)' \
-  "$HOME/Library/Application Support/LocalVoiceRelay/runtime/.venv/bin/python" scripts/smoke-sentences.py
-/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)' \
-  "$HOME/Library/Application Support/LocalVoiceRelay/runtime/.venv/bin/python" scripts/smoke-lines.py
-/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)' \
-  "$HOME/Library/Application Support/LocalVoiceRelay/runtime/.venv/bin/python" scripts/smoke-lines.py --saved-reference --flatten
+scripts/offline-python.sh scripts/smoke-streaming.py
+scripts/offline-python.sh scripts/smoke-preference.py
+scripts/offline-python.sh scripts/smoke-sentences.py
+scripts/offline-python.sh scripts/smoke-lines.py
+scripts/offline-python.sh scripts/smoke-lines.py --saved-reference --flatten
 python3 scripts/audit-public.py
 ```
 

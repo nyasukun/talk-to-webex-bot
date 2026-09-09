@@ -71,7 +71,7 @@ import RelayCore
             #expect(!body.contains("スクリーンショット"))
             #expect(body.contains("接続確認です。"))
         }
-        let captured = try await ScreenAttachment.captureIfAvailable(enabled: true) { ScreenContext(png: Data([1]), ocr: "一般的な文", windowTitle: "テスト") }
+        let captured = try await ScreenAttachment.captureIfAvailable(enabled: true) { ScreenContext(png: Data([1]), ocr: "一般的な文") }
         #expect(captured?.png == Data([1]))
     }
     @Test func screenCancellationAndMissingPermissionRemainActionable() async {

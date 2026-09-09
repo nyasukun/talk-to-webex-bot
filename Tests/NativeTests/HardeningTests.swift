@@ -70,6 +70,18 @@ struct HardeningTests {
         #expect(environment["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin")
     }
 
+    @Test func sandboxedChildrenRunUnderTheNetworkDenyingProfileWithAFilteredEnvironment() {
+        let process = OfflineProcess.sandboxed(["/usr/bin/true"])
+        #expect(process.executableURL?.path == "/usr/bin/sandbox-exec")
+        #expect(process.arguments == ["-p", "(version 1) (allow default) (deny network*)", "/usr/bin/true"])
+        let environment = process.environment ?? [:]
+        #expect(environment["HF_HUB_OFFLINE"] == "1")
+        #expect(environment["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin")
+        for key in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "PYTHONPATH", "DYLD_INSERT_LIBRARIES", "SSH_AUTH_SOCK"] {
+            #expect(environment[key] == nil)
+        }
+    }
+
     @MainActor @Test func issueDraftProjectsSafeFieldsWithoutSerializingSettingsOrUnknownMetrics() {
         var settings = Settings()
         settings.roomID = "synthetic-private-room"

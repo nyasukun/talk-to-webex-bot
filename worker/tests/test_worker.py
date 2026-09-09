@@ -112,6 +112,26 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(worker.preferred_turns([0.43, 0.84], [0.45, 1.0]), [1])
         self.assertEqual(worker.preferred_turns([0.84, 0.43], [1.0, float('nan')]), [0, 1])
 
+    def test_turn_spans_merge_pauses_below_the_gap_and_split_at_exactly_the_gap(self):
+        first, second = {"start": 0, "end": 1000}, {"start": 8199, "end": 9000}
+        third, fourth = {"start": 16200, "end": 17000}, {"start": 17500, "end": 17600}
+        self.assertEqual(worker.speech_turn_spans([]), [])
+        self.assertEqual(worker.speech_turn_spans([first]), [[first]])
+        self.assertEqual(worker.speech_turn_spans([first, second, third, fourth]), [[first, second], [third, fourth]])
+        self.assertEqual(worker.speech_turn_spans([first, second, third], gap=7199), [[first], [second], [third]])
+        self.assertEqual(worker.speech_turn_spans([first, second, third], gap=7201), [[first, second, third]])
+
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'Requires the local audio runtime.')
+    def test_voiced_helpers_count_and_join_spans_only(self):
+        import numpy as np
+        audio = np.arange(100, dtype=np.float32)
+        spans = [{"start": 10, "end": 13}, {"start": 50, "end": 52}]
+        self.assertEqual(worker.voiced_sample_count([]), 0)
+        self.assertEqual(worker.voiced_sample_count(spans), 5)
+        self.assertEqual(worker.voiced_audio(audio, spans).tolist(), [10, 11, 12, 50, 51])
+        with self.assertRaises(ValueError):
+            worker.voiced_audio(audio, [])
+
     def test_stream_preserves_chunk_order_and_finishes(self):
         instance = worker.Worker()
         writes = []
@@ -343,6 +363,80 @@ class WorkerTests(unittest.TestCase):
                        [chunk(1, [])], [chunk(1, np.zeros(24000 * 10))]):
             with self.assertRaises(ValueError):
                 worker.checked_sentence(iter(chunks), 20)
+
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'Requires the local audio runtime.')
+    def test_speaker_paths_slice_voiced_audio_and_score_windows_and_turns_exactly(self):
+        import numpy as np
+        # Unit vectors keyed by (length, first sample) pin down every slice the speaker paths embed.
+        vectors = {(50000, 0.0): [1.0, 0.0], (70000, 1000.0): [0.8, 0.6], (48000, 1000.0): [0.6, 0.8],
+                   (48000, 23000.0): [0.8, 0.6], (67000, 1000.0): [0.8, 0.6], (40000, 1000.0): [1.0, 0.0],
+                   (27000, 53000.0): [0.6, 0.8]}
+        def embed(audio):
+            return np.array(vectors[(len(audio), float(audio[0]))], dtype=np.float64)
+        audio = np.arange(80000, dtype=np.float32)
+        reference = np.arange(64000, dtype=np.float32)
+        request = {"reference_audio": "reference.wav"}
+        instance = worker.Worker()
+        with patch.object(instance, 'load_audio', return_value=reference) as load, \
+                patch.object(instance, 'speech_spans', return_value=[{"start": 0, "end": 50000}]) as spans, \
+                patch.object(instance, 'embedding', side_effect=embed):
+            metrics = instance.check_speaker(audio, [{"start": 1000, "end": 41000}, {"start": 45000, "end": 75000}], request)
+            self.assertEqual(metrics, {"accepted": False, "similarity": 0.6, "overall_similarity": 0.8,
+                                       "speaker_windows": [{"seconds": 3.0, "similarity": 0.6}, {"seconds": 3.0, "similarity": 0.8}],
+                                       "speech_seconds": 4.375, "rejected": "登録した話者と一致しない音声を除外しました。"})
+            accepted = instance.check_speaker(audio, [{"start": 1000, "end": 41000}, {"start": 45000, "end": 75000}],
+                                              dict(request, speaker_threshold=0.5))
+            self.assertEqual(accepted, {"accepted": True, "similarity": 0.6, "overall_similarity": 0.8,
+                                        "speaker_windows": [{"seconds": 3.0, "similarity": 0.6}, {"seconds": 3.0, "similarity": 0.8}],
+                                        "speech_seconds": 4.375})
+            short = instance.check_speaker(audio, [{"start": 1000, "end": 21000}], request)
+            self.assertEqual(short, {"accepted": False, "speech_seconds": 1.25,
+                                     "rejected": "本人照合には指示の発話が短すぎます。合言葉から、指示をもう少し長く話してください（音声区間1.6秒以上）。"})
+            load.assert_called_with("reference.wav")
+            spans.assert_called_with(reference)
+            self.assertEqual(load.call_count, 2)
+            selected, preferred = instance.prefer_speaker(
+                audio, [{"start": 1000, "end": 31000}, {"start": 35000, "end": 45000}, {"start": 53000, "end": 80000}], request)
+            self.assertEqual(preferred, {"similarity": 0.8, "overall_similarity": 0.8,
+                                         "speaker_note": "声の優先: 区別できた複数の声から、登録した声に近い発話を優先しました。"})
+            self.assertTrue(np.array_equal(selected, audio[1000:45000]))
+            unchanged, single = instance.prefer_speaker(audio, [{"start": 1000, "end": 41000}], request)
+            self.assertIs(unchanged, audio)
+            self.assertEqual(single, {"similarity": 1.0, "overall_similarity": 1.0,
+                                      "speaker_note": "声の優先: 単独・区別が不確かな発話を受け付けました。"})
+            brief, note = instance.prefer_speaker(audio, [{"start": 1000, "end": 21000}], request)
+            self.assertIs(brief, audio)
+            self.assertEqual(note, {"speaker_note": "声の優先: 短い発話も受け付けます。合言葉と認識結果で判断します。"})
+            self.assertEqual(load.call_count, 4)
+
+    @unittest.skipUnless(importlib.util.find_spec('numpy'), 'Requires the local audio runtime.')
+    def test_speaker_paths_reject_short_reference_speech_before_embedding(self):
+        import numpy as np
+        audio = np.arange(80000, dtype=np.float32)
+        instance = worker.Worker()
+        with patch.object(instance, 'load_audio', return_value=np.zeros(64000, dtype=np.float32)), \
+                patch.object(instance, 'speech_spans', return_value=[{"start": 0, "end": 47999}]), \
+                patch.object(instance, 'embedding', side_effect=AssertionError('embedding must not run')):
+            with self.assertRaises(worker.WorkerRequestError) as verify:
+                instance.check_speaker(audio, [{"start": 1000, "end": 41000}, {"start": 45000, "end": 75000}],
+                                       {"reference_audio": "reference.wav"})
+            self.assertEqual(str(verify.exception), "本人照合用に3秒以上の発話を含む音声を登録してください。")
+            with self.assertRaises(worker.WorkerRequestError) as prefer:
+                instance.prefer_speaker(audio, [{"start": 1000, "end": 41000}], {"reference_audio": "reference.wav"})
+            self.assertEqual(str(prefer.exception), "声の優先用に3秒以上の発話を含む参照音声を登録してください。")
+        # Exactly 3 s of reference speech and exactly 25600 voiced samples pass both strict gates.
+        with patch.object(instance, 'load_audio', return_value=np.zeros(64000, dtype=np.float32)), \
+                patch.object(instance, 'speech_spans', return_value=[{"start": 0, "end": 48000}]), \
+                patch.object(instance, 'embedding', return_value=np.array([1.0, 0.0])) as embed:
+            _, boundary = instance.prefer_speaker(audio, [{"start": 1000, "end": 26600}], {"reference_audio": "reference.wav"})
+            self.assertEqual(boundary, {"similarity": 1.0, "overall_similarity": 1.0,
+                                        "speaker_note": "声の優先: 単独・区別が不確かな発話を受け付けました。"})
+            verified = instance.check_speaker(audio, [{"start": 1000, "end": 41000}, {"start": 45000, "end": 75000}],
+                                              {"reference_audio": "reference.wav", "speaker_threshold": 0.5})
+            self.assertEqual(verified, {"accepted": True, "similarity": 1.0, "overall_similarity": 1.0,
+                                        "speaker_windows": [{"seconds": 3.0, "similarity": 1.0}, {"seconds": 3.0, "similarity": 1.0}],
+                                        "speech_seconds": 4.375})
+            self.assertEqual(embed.call_count, 7)
 
     def test_speaker_windows_do_not_create_short_padded_tails(self):
         self.assertEqual(worker.speaker_window_ranges(18880), [])

@@ -44,8 +44,8 @@ struct TextSetting: View {
 }
 struct ReferenceSettings: View {
     @ObservedObject var model: AppModel
-    let kind: String
-    private var registered: Bool { !(kind == "speaker" ? model.settings.speakerAudioPath : model.settings.referenceAudioPath).isEmpty }
+    let kind: ReferenceKind
+    private var registered: Bool { !model.settings[keyPath: kind.pathKeyPath].isEmpty }
     var body: some View {
         LabeledContent("参照音声") { Label(registered ? "登録済み" : "未登録", systemImage: registered ? "checkmark.circle.fill" : "waveform").foregroundStyle(registered ? Color.teal : Color.secondary) }
         HStack {
@@ -155,7 +155,7 @@ struct InputSettingsView: View {
                     Text("厳格に本人照合").tag("strict")
                 }.disabled(!model.settings.speakerVerification || !model.canConfigure)
                 if model.settings.speakerMode == "strict" { NumberSetting(title: "類似度のしきい値", unit: "", value: $model.settings.speakerThreshold).disabled(!model.canConfigure) }
-                ReferenceSettings(model: model, kind: "speaker")
+                ReferenceSettings(model: model, kind: .speaker)
             } header: { Text("話す人の優先") } footer: {
                 Text("優先モードは短い発話も受け付けます。複数の声を区別できる場合だけ、登録した声を優先します。読み上げ用の声の再現とは別機能です。")
             }
@@ -198,7 +198,7 @@ struct OutputSettingsView: View {
                         ForEach(SpeechOutput.voices, id: \.identifier) { Text(SpeechOutput.name($0)).tag($0.identifier) }
                     }.disabled(!model.canConfigure)
                 } else {
-                    ReferenceSettings(model: model, kind: "voice")
+                    ReferenceSettings(model: model, kind: .voice)
                     TextSetting(title: "参照録音で実際に読んだ全文", text: $model.settings.referenceText, height: 85).disabled(!model.canConfigure)
                     Toggle("参照音声の背景ノイズを軽減", isOn: $model.settings.reduceReferenceNoise).disabled(!model.canConfigure)
                     Text("声と一緒に再現される背景音を抑えます。声の響きが気になる場合は、オフの音声と比べてください。")

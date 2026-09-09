@@ -24,6 +24,9 @@ def local_path(value, directory=False):
 
 SPEECH_MAX_LINE_CHARACTERS = 160
 SPEECH_OPENING_CHARACTERS = 32
+ASR_SAMPLE_RATE = 16000
+SPEECH_TOKENS_PER_SECOND = 12.5  # Codec tokens per second of generated audio.
+SPEAKER_MIN_SAMPLES = 25600
 
 
 @lru_cache(maxsize=1)
@@ -148,9 +151,9 @@ def speech_plan(text):
 
 
 def speech_token_limit(text):
-    # 12.5 codec tokens/second. Bound even a model that never generates its stop token.
+    # Bound even a model that never generates its stop token.
     import math
-    return math.ceil(min(24, max(5, len(text) * 0.45 + 3)) * 12.5)
+    return math.ceil(min(24, max(5, len(text) * 0.45 + 3)) * SPEECH_TOKENS_PER_SECOND)
 
 
 class SpeechLengthLimit(ValueError):
@@ -172,7 +175,7 @@ def checked_sentence(results, token_limit):
             raise WorkerRequestError("音声生成中にサンプルレートが変わりました。")
         rate = result.sample_rate
         arrays.append(audio.copy())
-        if sum(len(a) for a in arrays) / rate > token_limit / 12.5 + 0.5:
+        if sum(len(a) for a in arrays) / rate > token_limit / SPEECH_TOKENS_PER_SECOND + 0.5:
             raise SpeechLengthLimit("音声区間をさらに短く分割します。")
     if not arrays:
         raise WorkerRequestError("読み上げ音声を生成できませんでした。")
@@ -201,7 +204,7 @@ def usable_segments(segments):
 
 
 def speaker_window_ranges(sample_count):
-    minimum, maximum, step = 25600, 48000, 24000
+    minimum, maximum, step = SPEAKER_MIN_SAMPLES, 48000, 24000
     if sample_count < minimum:
         return []
     if sample_count <= maximum:
@@ -211,6 +214,16 @@ def speaker_window_ranges(sample_count):
     if starts[-1] != tail:
         starts.append(tail)
     return [(start, start + maximum) for start in starts]
+
+
+def voiced_sample_count(spans):
+    return sum(s["end"] - s["start"] for s in spans)
+
+
+def voiced_audio(audio, spans):
+    """Join the voiced spans only; an empty span list raises like np.concatenate does."""
+    import numpy as np
+    return np.concatenate([audio[s["start"]:s["end"]] for s in spans])
 
 
 def speaker_scores_accepted(scores, threshold):
@@ -231,6 +244,17 @@ def preferred_turns(scores, similarities_to_best):
     return [i for i in range(len(scores)) if i not in measured or
             not (scores[best] - scores[i] > 0.16 and
                  math.isfinite(similarities_to_best[i]) and similarities_to_best[i] < 0.65)]
+
+
+def speech_turn_spans(spans, gap=7200):
+    """Group voiced spans into turns; a pause shorter than gap keeps the next span in the same turn."""
+    groups = []
+    for span in spans:
+        if groups and span["start"] - groups[-1][-1]["end"] < gap:
+            groups[-1].append(span)
+        else:
+            groups.append([span])
+    return groups
 
 
 def clean_voice_reference(audio, sample_rate):
@@ -268,52 +292,57 @@ class Worker:
         self.tts_stream = None
         self.speech_resplits = 0
 
-    def audio(self, value):
+    def load_audio(self, value):
+        """Load a file as 16 kHz mono float32; the recording must hold 0.25-60 s of finite samples."""
         import numpy as np
         import soundfile as sf
         from scipy.signal import resample_poly
         from math import gcd
         audio, rate = sf.read(str(local_path(value)), dtype="float32", always_2d=True)
         audio = audio.mean(axis=1)
-        if rate != 16000:
-            divisor = gcd(rate, 16000)
-            audio = resample_poly(audio, 16000 // divisor, rate // divisor)
-        if len(audio) < 4000 or len(audio) > 16000 * 60 or not np.isfinite(audio).all():
+        if rate != ASR_SAMPLE_RATE:
+            divisor = gcd(rate, ASR_SAMPLE_RATE)
+            audio = resample_poly(audio, ASR_SAMPLE_RATE // divisor, rate // divisor)
+        if len(audio) < 4000 or len(audio) > ASR_SAMPLE_RATE * 60 or not np.isfinite(audio).all():
             raise WorkerRequestError("録音は0.25〜60秒の有効な音声を使用してください。")
         return np.asarray(audio, dtype=np.float32)
 
-    def speech(self, audio):
+    def speech_spans(self, audio):
         import torch
         from silero_vad import load_silero_vad, get_speech_timestamps
         if self.vad is None:
             torch.set_num_threads(2)
             self.vad = load_silero_vad()  # Weights ship in the installed wheel; no torch.hub.
-        return get_speech_timestamps(torch.from_numpy(audio), self.vad, sampling_rate=16000,
+        return get_speech_timestamps(torch.from_numpy(audio), self.vad, sampling_rate=ASR_SAMPLE_RATE,
                                      threshold=0.65, min_speech_duration_ms=300, min_silence_duration_ms=200)
 
     def embedding(self, audio):
         from resemblyzer import VoiceEncoder, preprocess_wav
         if self.encoder is None:
             self.encoder = VoiceEncoder(device="cpu", verbose=False)
-        return self.encoder.embed_utterance(preprocess_wav(audio, source_sr=16000))
+        return self.encoder.embed_utterance(preprocess_wav(audio, source_sr=ASR_SAMPLE_RATE))
 
-    def check_speaker(self, audio, speech, request):
+    def reference_voice_embedding(self, request, too_short):
+        """Embed the voiced part of the registered reference; too_short is raised below 3 s of speech."""
+        reference = self.load_audio(request["reference_audio"])
+        spans = self.speech_spans(reference)
+        if voiced_sample_count(spans) < 3 * ASR_SAMPLE_RATE:
+            raise WorkerRequestError(too_short)
+        return self.embedding(voiced_audio(reference, spans))
+
+    def check_speaker(self, audio, spans, request):
         import numpy as np
-        duration = sum(s["end"] - s["start"] for s in speech) / 16000
-        ranges = speaker_window_ranges(round(duration * 16000))
+        samples = voiced_sample_count(spans)
+        duration = samples / ASR_SAMPLE_RATE
+        ranges = speaker_window_ranges(samples)
         if not ranges:
             return {"accepted": False, "speech_seconds": duration,
                     "rejected": "本人照合には指示の発話が短すぎます。合言葉から、指示をもう少し長く話してください（音声区間1.6秒以上）。"}
-        reference = self.audio(request["reference_audio"])
-        ref_speech = self.speech(reference)
-        if sum(s["end"] - s["start"] for s in ref_speech) < 3 * 16000:
-            raise WorkerRequestError("本人照合用に3秒以上の発話を含む音声を登録してください。")
-        reference_voice = np.concatenate([reference[s["start"]:s["end"]] for s in ref_speech])
-        reference_embedding = self.embedding(reference_voice)
+        reference_embedding = self.reference_voice_embedding(request, "本人照合用に3秒以上の発話を含む音声を登録してください。")
         # Join voiced spans before windowing: isolated syllables would be padded to 1.6 s by the encoder.
-        utterance = np.concatenate([audio[s["start"]:s["end"]] for s in speech])
+        utterance = voiced_audio(audio, spans)
         overall = float(np.dot(reference_embedding, self.embedding(utterance)))
-        windows = [{"seconds": (end - start) / 16000,
+        windows = [{"seconds": (end - start) / ASR_SAMPLE_RATE,
                     "similarity": float(np.dot(reference_embedding, self.embedding(utterance[start:end])))}
                    for start, end in ranges]
         scores = [overall] + [window["similarity"] for window in windows]
@@ -325,29 +354,20 @@ class Worker:
         return metrics
 
     def verify_speaker(self, request):
-        audio = self.audio(request["audio"])
-        return self.check_speaker(audio, self.speech(audio), request)
+        audio = self.load_audio(request["audio"])
+        return self.check_speaker(audio, self.speech_spans(audio), request)
 
-    def prefer_speaker(self, audio, speech, request):
+    def prefer_speaker(self, audio, spans, request):
         import numpy as np
-        voiced = np.concatenate([audio[s["start"]:s["end"]] for s in speech])
-        if len(voiced) < 25600:
+        voiced = voiced_audio(audio, spans)
+        if len(voiced) < SPEAKER_MIN_SAMPLES:
             return audio, {"speaker_note": "声の優先: 短い発話も受け付けます。合言葉と認識結果で判断します。"}
-        reference = self.audio(request["reference_audio"])
-        ref_speech = self.speech(reference)
-        if sum(s["end"] - s["start"] for s in ref_speech) < 48000:
-            raise WorkerRequestError("声の優先用に3秒以上の発話を含む参照音声を登録してください。")
-        ref = self.embedding(np.concatenate([reference[s["start"]:s["end"]] for s in ref_speech]))
-        overall = float(np.dot(ref, self.embedding(voiced)))
-        groups = []
-        for span in speech:
-            if groups and span["start"] - groups[-1][-1]["end"] < 7200:
-                groups[-1].append(span)
-            else:
-                groups.append([span])
-        turns = [np.concatenate([audio[s["start"]:s["end"]] for s in group]) for group in groups]
-        embeddings = [self.embedding(turn) if len(turn) >= 25600 else None for turn in turns]
-        scores = [float(np.dot(ref, value)) if value is not None else None for value in embeddings]
+        reference_embedding = self.reference_voice_embedding(request, "声の優先用に3秒以上の発話を含む参照音声を登録してください。")
+        overall = float(np.dot(reference_embedding, self.embedding(voiced)))
+        groups = speech_turn_spans(spans)
+        turns = [voiced_audio(audio, group) for group in groups]
+        embeddings = [self.embedding(turn) if len(turn) >= SPEAKER_MIN_SAMPLES else None for turn in turns]
+        scores = [float(np.dot(reference_embedding, value)) if value is not None else None for value in embeddings]
         measured = [i for i, value in enumerate(scores) if value is not None]
         pairs = [1.0] * len(scores)
         if measured:
@@ -368,24 +388,24 @@ class Worker:
         import noisereduce as nr
         from scipy.signal import butter, sosfilt
         model = local_path(request["model"], directory=True)
-        audio = self.audio(request["audio"])
-        speech = self.speech(audio)
-        duration = sum(s["end"] - s["start"] for s in speech) / 16000
-        if duration < 0.45 or duration / (len(audio) / 16000) < 0.12:
+        audio = self.load_audio(request["audio"])
+        spans = self.speech_spans(audio)
+        duration = voiced_sample_count(spans) / ASR_SAMPLE_RATE
+        if duration < 0.45 or duration / (len(audio) / ASR_SAMPLE_RATE) < 0.12:
             return {"text": "", "rejected": "音声区間が不足しています。"}
         similarity = None
         speaker_metrics = {}
         if request.get("prefer_speaker"):
-            audio, speaker_metrics = self.prefer_speaker(audio, speech, request)
+            audio, speaker_metrics = self.prefer_speaker(audio, spans, request)
             similarity = speaker_metrics.get("similarity")
         elif request.get("verify_speaker"):
-            speaker_metrics = self.check_speaker(audio, speech, request)
+            speaker_metrics = self.check_speaker(audio, spans, request)
             similarity = speaker_metrics.get("similarity")
             if not speaker_metrics["accepted"]:
                 return {"text": "", **speaker_metrics}
         # Band filtering + gentle spectral reduction complements AVAudioEngine voice processing.
-        filtered = sosfilt(butter(3, [80, 7600], btype="bandpass", fs=16000, output="sos"), audio).astype(np.float32)
-        cleaned = nr.reduce_noise(y=filtered, sr=16000, stationary=False, prop_decrease=0.35).astype(np.float32)
+        filtered = sosfilt(butter(3, [80, 7600], btype="bandpass", fs=ASR_SAMPLE_RATE, output="sos"), audio).astype(np.float32)
+        cleaned = nr.reduce_noise(y=filtered, sr=ASR_SAMPLE_RATE, stationary=False, prop_decrease=0.35).astype(np.float32)
         result = mlx_whisper.transcribe(cleaned, path_or_hf_repo=str(model), language="ja", task="transcribe",
                                         temperature=0.0, condition_on_previous_text=False, verbose=None,
                                         no_speech_threshold=0.55, logprob_threshold=-1.0,
@@ -435,6 +455,10 @@ class Worker:
         audio = self.cached_voice_reference(reference, self.tts.sample_rate, reduce_noise)
         return mx.array(audio), ref_text
 
+    def generate_speech(self, text, reference, ref_text, max_tokens):
+        return self.tts.generate(text=text, ref_audio=reference, ref_text=ref_text, lang_code="Japanese",
+                                 verbose=False, stream=True, streaming_interval=0.8, max_tokens=max_tokens)
+
     def warm_speech(self, request):
         import time
         started = time.perf_counter()
@@ -442,18 +466,14 @@ class Worker:
         key = (self.tts_path, self.reference_key, ref_text)
         if self.warm_key != key:
             # Exercise inference and populate the model's reference-code cache. Never play or save this audio.
-            for _ in self.tts.generate(text="準備できました。", ref_audio=reference, ref_text=ref_text,
-                                       lang_code="Japanese", verbose=False, stream=True,
-                                       streaming_interval=0.8, max_tokens=32):
+            for _ in self.generate_speech("準備できました。", reference, ref_text, 32):
                 pass
             self.warm_key = key
         return {"ready": True, "elapsed_seconds": time.perf_counter() - started}
 
     def speech_part(self, text, reference, ref_text, depth=0):
         limit = speech_token_limit(text)
-        generation = self.tts.generate(text=text, ref_audio=reference, ref_text=ref_text,
-                                       lang_code="Japanese", verbose=False, stream=True,
-                                       streaming_interval=0.8, max_tokens=limit)
+        generation = self.generate_speech(text, reference, ref_text, limit)
         too_long = False
         try:
             result = checked_sentence(generation, limit)
@@ -552,7 +572,7 @@ class Worker:
         model = local_path(request["model"], directory=True)
         if not (model / "config.json").is_file() or not any(model.glob("*.safetensors")):
             raise WorkerRequestError("Whisperモデルが未配置です。scripts/download-models.sh asr を実行してください。")
-        self.speech(np.zeros(16000, dtype=np.float32))
+        self.speech_spans(np.zeros(ASR_SAMPLE_RATE, dtype=np.float32))
         if request.get("voice_model"):
             voice = local_path(request["voice_model"], directory=True)
             importlib.import_module("mlx_audio.tts.utils")

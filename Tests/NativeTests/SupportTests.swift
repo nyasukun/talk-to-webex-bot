@@ -60,25 +60,6 @@ import RelayCore
         restored.clear()
         #expect(DiagnosticLog(file: file).entries.isEmpty)
     }
-    @Test func numericReadingMigrationPreservesExistingEditsAndDoesNotReinsertDeletedInstructions() throws {
-        let custom = "{{transcript}}\n自分で編集した指示です。"
-        let data = try JSONSerialization.data(withJSONObject: ["template": custom, "speechTemplateVersion": 1])
-        var settings = try PrivateStorage.decodeSettings(data)
-        #expect(settings.template == custom + "\n" + MessageTemplate.numberInstructions)
-        #expect(try PrivateStorage.decodeSettings(JSONEncoder().encode(settings)).template == settings.template)
-        settings.template = custom
-        #expect(try PrivateStorage.decodeSettings(JSONEncoder().encode(settings)).template == custom)
-        #expect(settings.replyTemplate == MessageTemplate.defaultReplyValue)
-    }
-    @Test func replyInstructionsMigrateOnlyTheOldDefaultAndRespectLaterEdits() throws {
-        var migrated = try PrivateStorage.decodeSettings(Data(#"{"replyTemplate":"{{transcript}}"}"#.utf8))
-        #expect(migrated.replyTemplate == MessageTemplate.defaultReplyValue)
-        migrated.replyTemplate = "{{transcript}}"
-        #expect(try PrivateStorage.decodeSettings(JSONEncoder().encode(migrated)).replyTemplate == "{{transcript}}")
-        let custom = "ユーザからの追加指示：{{transcript}}"
-        let data = try JSONSerialization.data(withJSONObject: ["replyTemplate": custom])
-        #expect(try PrivateStorage.decodeSettings(data).replyTemplate == custom)
-    }
     @Test func coloredStatusIconsAreNotTemplatesAndIdleUsesSystemAppearance() {
         #expect(StatusIcon.image(for: .idle).isTemplate)
         #expect(!StatusIcon.image(for: .receiving).isTemplate)

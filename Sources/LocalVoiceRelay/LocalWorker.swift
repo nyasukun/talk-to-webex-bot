@@ -58,10 +58,7 @@ final class LocalWorker: @unchecked Sendable {
         guard let script = Bundle.main.resourceURL?.appendingPathComponent("worker/relay_worker.py"), FileManager.default.fileExists(atPath: script.path) else {
             throw RelayError.message("音声処理がバンドルされていません。scripts/build.sh で.appをビルドしてください。")
         }
-        let process = Process(), stdin = Pipe(), stdout = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
-        process.arguments = ["-p", OfflineProcess.sandboxProfile, python, "-u", script.path]
-        process.environment = OfflineProcess.environment()
+        let process = OfflineProcess.sandboxed([python, "-u", script.path]), stdin = Pipe(), stdout = Pipe()
         process.standardInput = stdin; process.standardOutput = stdout; process.standardError = FileHandle.nullDevice
         try process.run()
         stateLock.withLock { self.process = process }

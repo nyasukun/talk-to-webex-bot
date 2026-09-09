@@ -11,7 +11,7 @@ description: Talk to Webex botリポジトリのインストール、macOS権限
 
 - インストール・更新：[README](../../../README.md)の導入手順と[署名手順](../../../docs/signing.md)を読む。Macのチップ・メモリ・OS、既存のPython環境・モデル・署名を確認し、不足するものだけ準備する。取得はscripts/setup-runtime.shとscripts/download-models.sh、ビルドはscripts/build.shを使う。実行中のアプリを上書きしない。既存の署名証明書を再利用し、別署名やアドホック署名へ自動で切り替えない。
 - 不具合：[トラブルシューティング](../../../docs/troubleshooting.md)を症状に合わせて読む。最初にログ画面の分類・エラー・診断数値を確認し、送信しないテストで原因を絞る。修正時は関係するテストとscripts/test.shを実行し、[検証記録](../../../docs/validation.md)で確認済みと未確認を区別する。
-- 操作説明：[README](../../../README.md)と[E2E手順](../../../docs/e2e.md)の該当部分を読む。現行UIの項目名はSources/LocalVoiceRelay/SettingsViews.swift、SupportViews.swiftで確認する。操作を一度に大量に依頼せず、結果で次の一手を決める。
+- 操作説明：[README](../../../README.md)と[E2E手順](../../../docs/e2e.md)の該当部分を読む。現行UIの項目名はSources/LocalVoiceRelay/ContentView.swift、SettingsViews.swift、SupportViews.swift、IssueReportView.swiftで確認する。操作を一度に大量に依頼せず、結果で次の一手を決める。
 - モデル・声：[モデル資料](../../../docs/models.md)を読む。本人の声の優先・厳格な照合と、読み上げ用の参照音声は別機能。短い指示の利便性には優先モードを使う。参照録音を登録しただけで追加学習済みと呼ばない。
 
 GitHubへの不具合報告は [Issue報告スキル](../talk-to-webex-bot-report-issue/SKILL.md)を使う。アプリの「不具合を報告」または `scripts/collect-issue-report.py` で下書きを作り、既存の投稿許可の範囲で進める。
