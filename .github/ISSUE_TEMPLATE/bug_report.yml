@@ -1,0 +1,38 @@
+name: 不具合の報告
+description: Talk to Webex botの不具合や、困った操作を報告します。
+title: "[不具合] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        トークン、DMの宛先、合言葉、会話、OCR、録音、個人情報を含む画像は添付しないでください。
+        リポジトリを開ける方は `$talk-to-webex-bot-report-issue` または `python3 scripts/collect-issue-report.py` で下書きを作れます。
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 起きたこと
+      description: 期待した動作と実際の動作を記入してください。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順・頻度
+      placeholder: |
+        1. アプリを起動
+        2. …
+        頻度：毎回／ときどき／一度だけ
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 環境
+      description: macOS、チップ、アプリのバージョン・ビルド、コミット、使用した音声方式。
+    validations:
+      required: true
+  - type: textarea
+    id: attempts
+    attributes:
+      label: 試した対処・診断ログ
+      description: 該当するイベントと数値だけを記入してください。設定JSONや実際の会話は添付しないでください。

@@ -1,0 +1,32 @@
+name: Validate
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: "0.9.26"
+          enable-cache: true
+      - name: Install locked worker dependencies (no models)
+        run: uv sync --frozen --project worker --python 3.12
+      - name: Swift, worker and support script tests
+        env:
+          RELAY_TEST_PYTHON: ${{ github.workspace }}/worker/.venv/bin/python
+        run: scripts/test.sh
+      - name: Audit publishable files
+        run: python3 scripts/audit-public.py
+      - name: Package application without signing credentials
+        run: scripts/build.sh --prepare

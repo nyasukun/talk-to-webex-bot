@@ -1,0 +1,14 @@
+{
+  "asr": {
+    "repository": "mlx-community/whisper-large-v3-turbo",
+    "revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb"
+  },
+  "asr-large": {
+    "repository": "mlx-community/whisper-large-v3-mlx",
+    "revision": "49e6aa286ad60c14352c404340ded53710378a11"
+  },
+  "voice": {
+    "repository": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit",
+    "revision": "0d6bb6fe33f92d47a507e23b9148940e8366ab5b"
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Talk to Webex bot 不具合報告"
+  short_description: "困った操作や不具合の再現手順を整理し、個人情報を除いてIssueを報告"
+  default_prompt: "Use $talk-to-webex-bot-report-issue to prepare an issue report for a problem with Talk to Webex bot."

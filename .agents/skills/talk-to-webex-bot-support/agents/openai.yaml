@@ -1,0 +1,4 @@
+interface:
+  display_name: "Talk to Webex bot サポート"
+  short_description: "このリポジトリの導入・更新・使い方・音声と認証のトラブルを支援"
+  default_prompt: "Use $talk-to-webex-bot-support to help set up or troubleshoot Talk to Webex bot in this repository."
