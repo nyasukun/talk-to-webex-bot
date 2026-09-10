@@ -8,13 +8,21 @@ import RelayCore
     private var cancelled = false
     private var generation = UUID()
 
-    /// Installed Japanese voices, best quality first. Enhanced and premium variants come from System Settings.
-    static var voices: [AVSpeechSynthesisVoice] {
-        AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("ja") }
-            .sorted { (rank($0.quality), $0.name, $0.identifier) < (rank($1.quality), $1.name, $1.identifier) }
+    /// Installed voices for the selected language, best quality first. Enhanced and premium variants come from System Settings.
+    static func voices(for language: AppLanguage) -> [AVSpeechSynthesisVoice] {
+        AVSpeechSynthesisVoice.speechVoices().filter { $0.language.split(separator: "-").first == Substring(language.rawValue) }
+            .sorted { (rank($0.quality), preference($0, language: language), $0.name, $0.identifier) < (rank($1.quality), preference($1, language: language), $1.name, $1.identifier) }
     }
-    /// The best installed quality of Kyoko, then of any Japanese voice.
-    static var automaticVoice: AVSpeechSynthesisVoice? { voices.first { $0.name == "Kyoko" } ?? voices.first }
+    /// Prefer Kyoko in Japanese; otherwise use the best installed voice in the selected language.
+    static func automaticVoice(for language: AppLanguage) -> AVSpeechSynthesisVoice? {
+        let available = voices(for: language)
+        return (language == .japanese ? available.first { $0.name == "Kyoko" } : nil) ?? available.first
+    }
+    private static func preference(_ voice: AVSpeechSynthesisVoice, language: AppLanguage) -> Int {
+        // Prefer natural English voices over novelty voices at the same installed quality.
+        guard language == .english else { return 0 }
+        return ["Samantha", "Alex", "Daniel", "Karen", "Moira", "Tessa"].firstIndex(of: voice.name) ?? 6
+    }
     static func rank(_ quality: AVSpeechSynthesisVoiceQuality) -> Int {
         switch quality {
         case .premium: return 0
@@ -25,8 +33,8 @@ import RelayCore
     static func name(_ voice: AVSpeechSynthesisVoice) -> String { label(voice.name, quality: voice.quality) }
     static func label(_ name: String, quality: AVSpeechSynthesisVoiceQuality) -> String {
         switch quality {
-        case .premium: return "\(name)（プレミアム）"
-        case .enhanced: return "\(name)（拡張）"
+        case .premium: return L10n.text("\(name)（プレミアム）")
+        case .enhanced: return L10n.text("\(name)（拡張）")
         default: return name
         }
     }
@@ -41,7 +49,7 @@ import RelayCore
         generation = run
         cancelled = false
         // Both voices read the spoken form; the reply on screen keeps its Markdown.
-        let spoken = SpeechText.forSpeech(text)
+        let spoken = SpeechText.forSpeech(text, language: settings.language)
         if settings.ttsEngine == "system" {
             try await speakWithSystemVoice(spoken, settings: settings, onStart: onStart)
         } else {
@@ -50,8 +58,8 @@ import RelayCore
         }
     }
     private func speakWithSystemVoice(_ text: String, settings: Settings, onStart: () -> Void) async throws {
-        guard let voice = Self.voices.first(where: { $0.identifier == settings.systemVoiceID }) ?? Self.automaticVoice else {
-            throw RelayError.message("日本語音声が未配置です。システム設定 → アクセシビリティ → 読み上げコンテンツで先に取得してください。")
+        guard let voice = Self.voices(for: settings.language).first(where: { $0.identifier == settings.systemVoiceID }) ?? Self.automaticVoice(for: settings.language) else {
+            throw RelayError.message(L10n.text("日本語音声が未配置です。システム設定 → アクセシビリティ → 読み上げコンテンツで先に取得してください。"))
         }
         let source = try PrivateStorage.temporaryFile(extension: "txt")
         defer { try? FileManager.default.removeItem(at: source) }
@@ -71,7 +79,7 @@ import RelayCore
             try Task.checkCancellation()
             try await Task.sleep(nanoseconds: 100_000_000)
         }
-        guard !cancelled, process.terminationStatus == 0 else { throw RelayError.message("読み上げが停止したか、ローカル音声を利用できません。") }
+        guard !cancelled, process.terminationStatus == 0 else { throw RelayError.message(L10n.text("読み上げが停止したか、ローカル音声を利用できません。")) }
         self.process = nil
     }
     private func speakWithQwen(_ text: String, settings: Settings, worker: LocalWorker, run: UUID,

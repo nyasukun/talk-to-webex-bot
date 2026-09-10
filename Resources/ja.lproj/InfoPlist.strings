@@ -1,0 +1,2 @@
+"NSMicrophoneUsageDescription" = "合言葉と指示をこのMacで認識し、登録用の参照音声を録音します。";
+"NSScreenCaptureUsageDescription" = "スクショ/OCRが有効なとき、前面ウィンドウを取得して選択したWebex DMへ送ります。";

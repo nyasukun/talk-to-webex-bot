@@ -40,7 +40,7 @@ struct PrivateStorage {
         try PrivateFiles.prepareDirectory(temporary)
         let file = temporary.appendingPathComponent(UUID().uuidString).appendingPathExtension(suffix)
         guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-            throw RelayError.message("一時ファイルを作成できません。")
+            throw RelayError.message(L10n.text("一時ファイルを作成できません。"))
         }
         return file
     }
@@ -70,8 +70,8 @@ struct TokenReadError: LocalizedError {
     let interactive: Bool
     var errorDescription: String? {
         interactive
-            ? "macOSが保存済みトークンの読み込みを許可しませんでした（\(status)）。確認画面が出なかった場合は、キーチェーンのロック状態とアプリの署名を確認してください。"
-            : "保存済みトークンを自動では読み込めませんでした（\(status)）。「保存済みトークンを読み込む」でmacOSのアクセス確認を進めてください。"
+            ? L10n.text("macOSが保存済みトークンの読み込みを許可しませんでした（\(status)）。確認画面が出なかった場合は、キーチェーンのロック状態とアプリの署名を確認してください。")
+            : L10n.text("保存済みトークンを自動では読み込めませんでした（\(status)）。「保存済みトークンを読み込む」でmacOSのアクセス確認を進めてください。")
     }
 }
 
@@ -89,7 +89,7 @@ struct TokenStore {
                     var previous: DarwinBoolean = false
                     guard SecKeychainGetUserInteractionAllowed(&previous) == errSecSuccess,
                           SecKeychainSetUserInteractionAllowed(interactive) == errSecSuccess else {
-                        throw RelayError.message("キーチェーンのアクセス方法を設定できません。")
+                        throw RelayError.message(L10n.text("キーチェーンのアクセス方法を設定できません。"))
                     }
                     defer { SecKeychainSetUserInteractionAllowed(previous.boolValue) }
                     return try body()
@@ -107,11 +107,11 @@ struct TokenStore {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         let (status, data) = operations.copy(query)
         if status == errSecItemNotFound { return nil }
-        if status == errSecUserCanceled { throw RelayError.message("キーチェーンの読み込みをキャンセルしました。自動では再試行しません。") }
+        if status == errSecUserCanceled { throw RelayError.message(L10n.text("キーチェーンの読み込みをキャンセルしました。自動では再試行しません。")) }
         guard status == errSecSuccess, let data else {
             throw TokenReadError(status: status, interactive: interactive)
         }
-        guard let value = String(data: data, encoding: .utf8) else { throw RelayError.message("保存済みトークンの形式を読み取れません。アプリ内で保存し直してください。") }
+        guard let value = String(data: data, encoding: .utf8) else { throw RelayError.message(L10n.text("保存済みトークンの形式を読み取れません。アプリ内で保存し直してください。")) }
         return value
     }
     static func authorize(using operations: TokenKeychainOperations = .live) async throws -> String? {
@@ -129,7 +129,7 @@ struct TokenStore {
             query[kSecValueData as String] = data
             // The default ACL of a new item trusts only its creating application.
             let added = operations.add(query)
-            guard added == errSecSuccess else { throw RelayError.message("キーチェーンに保存できません（\(added)）。") }
-        } else if status != errSecSuccess { throw RelayError.message("キーチェーンを更新できません（\(status)）。") }
+            guard added == errSecSuccess else { throw RelayError.message(L10n.text("キーチェーンに保存できません（\(added)）。")) }
+        } else if status != errSecSuccess { throw RelayError.message(L10n.text("キーチェーンを更新できません（\(status)）。")) }
     }
 }

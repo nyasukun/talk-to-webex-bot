@@ -32,7 +32,7 @@ final class AudioRecorder: @unchecked Sendable {
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0,
               let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: format, to: target) else { throw RelayError.message("マイクの音声形式に対応できません。") }
+              let converter = AVAudioConverter(from: format, to: target) else { throw RelayError.message(L10n.text("マイクの音声形式に対応できません。")) }
         inputFormat = (format.sampleRate, Double(format.channelCount))
         let current = queue.sync { generation }
         input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
@@ -52,7 +52,7 @@ final class AudioRecorder: @unchecked Sendable {
                 self.queue.async {
                     guard self.generation == current, !self.reportedConversionError else { return }
                     self.reportedConversionError = true
-                    self.onError?("マイク音声の変換に失敗しました。入力デバイスを確認し、Macの追加音声処理を無効にして再開してください。")
+                    self.onError?(L10n.text("マイク音声の変換に失敗しました。入力デバイスを確認し、Macの追加音声処理を無効にして再開してください。"))
                 }
                 return
             }
@@ -140,10 +140,10 @@ final class AudioRecorder: @unchecked Sendable {
         return result
     }
     static func write(_ samples: [Float], to url: URL) throws {
-        guard !samples.isEmpty else { throw RelayError.message("録音が空です。") }
+        guard !samples.isEmpty else { throw RelayError.message(L10n.text("録音が空です。")) }
         guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
-              let pointer = buffer.floatChannelData?[0] else { throw RelayError.message("録音バッファを作成できません。") }
+              let pointer = buffer.floatChannelData?[0] else { throw RelayError.message(L10n.text("録音バッファを作成できません。")) }
         buffer.frameLength = AVAudioFrameCount(samples.count)
         samples.withUnsafeBufferPointer { pointer.update(from: $0.baseAddress!, count: samples.count) }
         let file = try AVAudioFile(forWriting: url, settings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false])
@@ -157,7 +157,7 @@ final class AudioRecorder: @unchecked Sendable {
               let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false),
               let converter = AVAudioConverter(from: file.processingFormat, to: format),
               let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(seconds * 24000 + 1024)) else {
-            throw RelayError.message("参照音声は3〜30秒の音声ファイルを選んでください。")
+            throw RelayError.message(L10n.text("参照音声は3〜30秒の音声ファイルを選んでください。"))
         }
         try file.read(into: input)
         var supplied = false, error: NSError?
@@ -170,7 +170,7 @@ final class AudioRecorder: @unchecked Sendable {
             status.pointee = .haveData
             return input
         }
-        guard error == nil, output.frameLength > 0 else { throw RelayError.message("参照音声をWAVに変換できません。") }
+        guard error == nil, output.frameLength > 0 else { throw RelayError.message(L10n.text("参照音声をWAVに変換できません。")) }
         let destination = try AVAudioFile(forWriting: target, settings: [AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: 24000, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false])
         try destination.write(from: output)

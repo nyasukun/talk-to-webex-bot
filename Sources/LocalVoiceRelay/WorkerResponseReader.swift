@@ -31,11 +31,11 @@ struct WorkerResponseReader {
             guard pending.count <= maximumBytes else { throw tooLarge }
             let chunk = try nextChunk()
             guard !chunk.isEmpty else {
-                throw RelayError.message("音声処理の応答が途中で終了しました。処理時間・メモリ・モデル配置を確認してください。")
+                throw RelayError.message(L10n.text("音声処理の応答が途中で終了しました。処理時間・メモリ・モデル配置を確認してください。"))
             }
             pending.append(chunk)
         }
     }
 
-    private var tooLarge: RelayError { .message("音声処理の出力が上限を超えました。") }
+    private var tooLarge: RelayError { .message(L10n.text("音声処理の出力が上限を超えました。")) }
 }

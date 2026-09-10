@@ -75,19 +75,20 @@ public enum RelayError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .message(let text): return text
-        case .unauthorized: return "Webex認証が切れています。設定でトークンを更新してください。"
+        case .unauthorized: return L10n.text("Webex認証が切れています。設定でトークンを更新してください。")
         case .rateLimited(let seconds):
             guard seconds.isFinite, seconds >= 0, seconds < Double(Int.max) else {
-                return "Webexの呼び出し制限です。時間をおいて再実行してください。"
+                return L10n.text("Webexの呼び出し制限です。時間をおいて再実行してください。")
             }
-            return "Webexの呼び出し制限です。約\(Int(seconds))秒後に再実行してください。"
-        case .ambiguousSend: return "送信結果を確認できません。重複を避けるため自動再送しません。WebexのDMを確認してください。"
-        case .missingPermissions(let names): return "必要な権限がありません: \(names.joined(separator: "・"))。画面上部の「最初に権限を確認」で許可を設定し、再確認してください。画面収録を変更した場合はアプリを再起動してください。"
+            return L10n.text("Webexの呼び出し制限です。約\(Int(seconds))秒後に再実行してください。")
+        case .ambiguousSend: return L10n.text("送信結果を確認できません。重複を避けるため自動再送しません。WebexのDMを確認してください。")
+        case .missingPermissions(let names): return L10n.text("必要な権限がありません: \(names.joined(separator: "・"))。画面上部の「最初に権限を確認」で許可を設定し、再確認してください。画面収録を変更した場合はアプリを再起動してください。")
         }
     }
 }
 
 public struct Settings: Codable, Equatable, Sendable {
+    public private(set) var language: AppLanguage = .japanese
     public var wakePhrases = "オッケー、アシスタント"
     public var replyWakePhrases = "オッケー、返信して"
     public var replyTemplate = MessageTemplate.defaultReplyValue
@@ -132,7 +133,26 @@ public struct Settings: Codable, Equatable, Sendable {
     public var reduceReferenceNoise = true
     public var systemVoiceID = ""
     public var voiceModelVersion = 2
-    public init() {}
+    public init(language: AppLanguage = .system) {
+        self.language = language
+        busyPatterns = language.busyPatterns
+        resetLanguageDefaults()
+    }
+
+    public mutating func changeLanguage(to language: AppLanguage) {
+        guard self.language != language else { return }
+        if busyPatterns == self.language.busyPatterns { busyPatterns = language.busyPatterns }
+        self.language = language
+        resetLanguageDefaults()
+        systemVoiceID = ""
+    }
+
+    private mutating func resetLanguageDefaults() {
+        wakePhrases = language.wakePhrases
+        replyWakePhrases = language.replyWakePhrases
+        template = MessageTemplate.defaultValue(for: language)
+        replyTemplate = MessageTemplate.defaultReplyValue(for: language)
+    }
 
     /// Picks the voice model folder. `standard` is the 1.7B model that `download-models.sh voice` installs;
     /// `small` is the 0.6B folder of earlier builds. Saved settings from before the larger model move to it
@@ -148,31 +168,31 @@ public struct Settings: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        guard ["system", "qwen"].contains(ttsEngine) else { throw RelayError.message("読み上げの音声方式を選び直してください。") }
-        guard ["prefer", "strict"].contains(speakerMode) else { throw RelayError.message("声の判定方法を選び直してください。") }
-        guard WakeMatcher.isValid(wakePhrases) else { throw RelayError.message("合言葉を4文字以上で登録してください。複数候補は改行で分けます。") }
+        guard ["system", "qwen"].contains(ttsEngine) else { throw RelayError.message(L10n.text("読み上げの音声方式を選び直してください。")) }
+        guard ["prefer", "strict"].contains(speakerMode) else { throw RelayError.message(L10n.text("声の判定方法を選び直してください。")) }
+        guard WakeMatcher.isValid(wakePhrases) else { throw RelayError.message(L10n.text("合言葉を4文字以上で登録してください。複数候補は改行で分けます。")) }
         if !replyWakePhrases.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard WakeMatcher.isValid(replyWakePhrases), !WakeMatcher.overlaps(wakePhrases, replyWakePhrases) else {
-                throw RelayError.message("返信用の合言葉は4文字以上にして、通常の合言葉と区別できるものを登録してください。")
+                throw RelayError.message(L10n.text("返信用の合言葉は4文字以上にして、通常の合言葉と区別できるものを登録してください。"))
             }
         }
         let ranges: [(Double, ClosedRange<Double>, String)] = [
-            (silenceSeconds, 0.3...4, "発話を区切る無音は0.3〜4秒で指定してください。"),
-            (commandWaitSeconds, 3...60, "合言葉の後の受付時間は3〜60秒で指定してください。"),
-            (minimumRMS, 0.001...0.1, "入力音量のしきい値は0.001〜0.1で指定してください。"),
-            (speakerThreshold, 0.5...0.99, "類似度のしきい値は0.5〜0.99で指定してください。"),
-            (replyPollSeconds, 0.1...30, "返信の監視間隔は100〜30,000msで指定してください。"),
-            (replySettleSeconds, 2...60, "本文更新が止まってから待つ時間は2〜60秒で指定してください。"),
-            (waitingSoundVolume, 0...1, "ソナー音量は0〜1で指定してください。"),
-            (replyTimeoutSeconds, 30...900, "返信の待ち時間は30〜900秒で指定してください。")
+            (silenceSeconds, 0.3...4, L10n.text("発話を区切る無音は0.3〜4秒で指定してください。")),
+            (commandWaitSeconds, 3...60, L10n.text("合言葉の後の受付時間は3〜60秒で指定してください。")),
+            (minimumRMS, 0.001...0.1, L10n.text("入力音量のしきい値は0.001〜0.1で指定してください。")),
+            (speakerThreshold, 0.5...0.99, L10n.text("類似度のしきい値は0.5〜0.99で指定してください。")),
+            (replyPollSeconds, 0.1...30, L10n.text("返信の監視間隔は100〜30,000msで指定してください。")),
+            (replySettleSeconds, 2...60, L10n.text("本文更新が止まってから待つ時間は2〜60秒で指定してください。")),
+            (waitingSoundVolume, 0...1, L10n.text("ソナー音量は0〜1で指定してください。")),
+            (replyTimeoutSeconds, 30...900, L10n.text("返信の待ち時間は30〜900秒で指定してください。"))
         ]
         for (value, range, message) in ranges where !range.contains(value) { throw RelayError.message(message) }
         guard replyTimeoutSeconds > replySettleSeconds else {
-            throw RelayError.message("返信の待ち時間は、本文更新が止まってから待つ時間より長くしてください。")
+            throw RelayError.message(L10n.text("返信の待ち時間は、本文更新が止まってから待つ時間より長くしてください。"))
         }
-        _ = try MessageTemplate.render(template, transcript: "テスト", ocr: "テスト", screen: true)
-        _ = try MessageTemplate.render(template, transcript: "テスト", ocr: nil, screen: false)
-        _ = try MessageTemplate.render(replyTemplate, transcript: "テスト", ocr: nil, screen: false)
+        _ = try MessageTemplate.render(template, transcript: L10n.text("テスト"), ocr: L10n.text("テスト"), screen: true)
+        _ = try MessageTemplate.render(template, transcript: L10n.text("テスト"), ocr: nil, screen: false)
+        _ = try MessageTemplate.render(replyTemplate, transcript: L10n.text("テスト"), ocr: nil, screen: false)
     }
 }
 

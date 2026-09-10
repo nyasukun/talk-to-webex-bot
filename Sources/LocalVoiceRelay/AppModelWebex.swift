@@ -13,7 +13,7 @@ extension AppModel {
     }
     func handleAuthenticationFailure() {
         tokenValid = false
-        tokenStatus = "認証が無効です。新しいAPI Keyを入力してください。"
+        tokenStatus = L10n.text("認証が無効です。新しいAPI Keyを入力してください。")
         guard tokenRecovery.unauthorized() else { return }
         presentTokenRenewal()
         openTokenPortal()
@@ -26,9 +26,9 @@ extension AppModel {
         if dismissRenewal || wasRecovering { showTokenRenewal = false }
         if wasRecovering && phase == .error && permissionsReady {
             phase = .stopped
-            detail = "Webexの認証を更新しました。待受を開始できます。"
+            detail = L10n.text("Webexの認証を更新しました。待受を開始できます。")
         }
-        tokenStatus = "有効（\(Date().formatted(date: .omitted, time: .shortened))に確認）"
+        tokenStatus = L10n.text("有効（\(Date().formatted(date: .omitted, time: .shortened))に確認）")
         logs.record(.tokenValid, category: .webex)
     }
     func connection() async throws -> WebexClient {
@@ -43,7 +43,7 @@ extension AppModel {
             throw error
         }
         if let client { return client }
-        guard let token = saved, !token.isEmpty else { throw RelayError.message("設定のWebex欄でトークンをキーチェーンに保存してください。") }
+        guard let token = saved, !token.isEmpty else { throw RelayError.message(L10n.text("設定のWebex欄でトークンをキーチェーンに保存してください。")) }
         let result = WebexClient(token: token)
         client = result
         return result
@@ -55,13 +55,13 @@ extension AppModel {
         defer { busy = false }
         do {
             guard let token = try await TokenStore.authorize(), !token.isEmpty else {
-                throw RelayError.message("保存済みトークンがありません。アプリ内で入力して保存してください。")
+                throw RelayError.message(L10n.text("保存済みトークンがありません。アプリ内で入力して保存してください。"))
             }
             credentialEpoch = UUID()
             client = WebexClient(token: token)
             tokenReadTask = nil
             if permissionsReady, phase == .error { phase = .stopped }
-            detail = "保存済みトークンを読み込みました。Webexで有効性を確認します。"
+            detail = L10n.text("保存済みトークンを読み込みました。Webexで有効性を確認します。")
             await checkToken()
         } catch {
             keychainNeedsAccess = error is TokenReadError
@@ -89,7 +89,7 @@ extension AppModel {
             authenticationSucceeded(dismissRenewal: true)
             logs.record(.tokenSaved, category: .webex)
             if permissionsReady { phase = .stopped }
-            detail = "認証を確認しました。送信先DMを選んでください。"
+            detail = L10n.text("認証を確認しました。送信先DMを選んでください。")
             busy = false
             loadRooms()
         } catch {
@@ -126,7 +126,7 @@ extension AppModel {
     func cancelRoomSearch() {
         roomSearchTask?.cancel()
         roomSearchID = UUID()
-        if roomsLoading { roomSearchStatus = "DM検索を停止しました。更新ボタンで再開できます。" }
+        if roomsLoading { roomSearchStatus = L10n.text("DM検索を停止しました。更新ボタンで再開できます。") }
         roomsLoading = false
     }
     func searchRooms(debounce: Bool = true) {
@@ -136,7 +136,7 @@ extension AppModel {
         roomSearchID = id
         rooms = []
         roomsLoading = true
-        roomSearchStatus = "最近のやりとり順に、一致するDMを最大5件探しています。"
+        roomSearchStatus = L10n.text("最近のやりとり順に、一致するDMを最大5件探しています。")
         roomSearchTask = Task {
             defer { if roomSearchID == id { roomsLoading = false } }
             do {
@@ -146,7 +146,7 @@ extension AppModel {
                 guard roomSearchID == id, query == filter else { return }
                 rooms = result
                 logs.record(.roomsLoaded, category: .webex, metrics: [.count: Double(result.count)])
-                roomSearchStatus = result.isEmpty ? "条件に一致するDMはありません。" : "\(result.count)件 • 最近のやりとり順 • 最大5件"
+                roomSearchStatus = result.isEmpty ? L10n.text("条件に一致するDMはありません。") : L10n.text("\(result.count)件 • 最近のやりとり順 • 最大5件")
             } catch {
                 guard !Task.isCancelled, roomSearchID == id else { return }
                 roomSearchStatus = error.localizedDescription
@@ -161,6 +161,6 @@ extension AppModel {
     }
     func validateDestination() throws {
         try settings.validate()
-        guard !settings.roomID.isEmpty else { throw RelayError.message("送信先DMを選んでください。") }
+        guard !settings.roomID.isEmpty else { throw RelayError.message(L10n.text("送信先DMを選んでください。")) }
     }
 }

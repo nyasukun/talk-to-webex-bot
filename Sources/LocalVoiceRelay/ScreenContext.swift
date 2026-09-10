@@ -51,7 +51,7 @@ struct ScreenContext: Sendable {
         let context = try await Task.detached(priority: .userInitiated) {
             let text = try recognize(image)
             let bitmap = NSBitmapImageRep(cgImage: image)
-            guard let png = bitmap.representation(using: .png, properties: [:]) else { throw RelayError.message("画像をPNGに変換できません。") }
+            guard let png = bitmap.representation(using: .png, properties: [:]) else { throw RelayError.message(L10n.text("画像をPNGに変換できません。")) }
             return ScreenContext(png: png, ocr: text)
         }.value
         guard sessionAllowsCapture(CGSessionCopyCurrentDictionary() as? [String: Any]),

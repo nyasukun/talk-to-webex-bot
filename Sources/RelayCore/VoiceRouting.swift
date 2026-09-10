@@ -50,7 +50,7 @@ public struct ThreadReplyTarget: Equatable, Sendable {
     }
     public func require(roomID: String) throws {
         guard self.roomID == roomID, !parentID.isEmpty else {
-            throw RelayError.message("返信先のDMが変わりました。このDMで新しい返信を受け取ってから実行してください。")
+            throw RelayError.message(L10n.text("返信先のDMが変わりました。このDMで新しい返信を受け取ってから実行してください。"))
         }
     }
 }

@@ -21,7 +21,7 @@ struct VoiceRoutingTests {
         #expect(accept("普通の会話です") == .ignored)
     }
     @Test func ambiguousWakePhrasesAreRejectedAndReplyCanBeDisabled() throws {
-        var settings = Settings()
+        var settings = Settings(language: .japanese)
         settings.replyWakePhrases = "オーケー、アシスタント"
         #expect(throws: (any Error).self) { try settings.validate() }
         settings.replyWakePhrases = ""
@@ -89,7 +89,7 @@ struct VoiceRoutingTests {
     }
     @Test func defaultThreadPromptIncludesOnlyNewTranscriptAndInstructions() async throws {
         let transport = MockTransport([.init(status: 200, json: #"{"id":"sent","roomId":"room","parentId":"root"}"#)])
-        let body = try MessageTemplate.render(Settings().replyTemplate, transcript: "午後の予定だけ教えてください。", ocr: nil, screen: false)
+        let body = try MessageTemplate.render(Settings(language: .japanese).replyTemplate, transcript: "午後の予定だけ教えてください。", ocr: nil, screen: false)
         #expect(body.contains("同じスレッド内"))
         #expect(body.contains("以上の会話のコンテキストとユーザ返信"))
         #expect(body.contains(MessageTemplate.speechInstructions))

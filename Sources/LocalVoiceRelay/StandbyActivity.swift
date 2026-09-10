@@ -1,3 +1,4 @@
+import RelayCore
 import Foundation
 
 /// Keep a user-started listening session active without preventing screen locking or display sleep.
@@ -7,7 +8,7 @@ import Foundation
     private var token: NSObjectProtocol?
     private var preventsSleep: Bool?
     init(begin: @escaping (ProcessInfo.ActivityOptions) -> NSObjectProtocol = {
-        ProcessInfo.processInfo.beginActivity(options: $0, reason: "音声アシスタントの常時待受")
+        ProcessInfo.processInfo.beginActivity(options: $0, reason: L10n.text("音声アシスタントの常時待受"))
     }, end: @escaping (NSObjectProtocol) -> Void = { ProcessInfo.processInfo.endActivity($0) }) {
         self.begin = begin
         self.end = end

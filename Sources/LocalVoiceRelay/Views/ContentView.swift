@@ -39,9 +39,9 @@ struct ContentView: View {
                 if model.tokenRecovery.needsRenewal && section != .webex {
                     HStack(spacing: 10) {
                         Image(systemName: "key.fill").foregroundStyle(.orange)
-                        Text("Webexの認証を更新してください。")
+                        Text(L10n.text("Webexの認証を更新してください。"))
                         Spacer()
-                        Button("API Keyを入力") { model.presentTokenRenewal() }
+                        Button(L10n.text("API Keyを入力")) { model.presentTokenRenewal() }
                     }.font(.callout).padding(14).background(Color.orange.opacity(0.08))
                     Divider()
                 }
@@ -55,11 +55,11 @@ struct ContentView: View {
                 detail
             }
             .background(Color(nsColor: .windowBackgroundColor))
-            .navigationTitle(section.rawValue)
+            .navigationTitle(section.title)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     if model.listening || ![.stopped, .error].contains(model.phase) {
-                        Button("停止", systemImage: "stop.fill") { model.stop() }.help("マイク・読み上げ・返信監視を停止")
+                        Button(L10n.text("停止"), systemImage: "stop.fill") { model.stop() }.help(L10n.text("マイク・読み上げ・返信監視を停止"))
                     }
                 }
             }
@@ -70,19 +70,21 @@ struct ContentView: View {
                         HStack(spacing: 12) {
                             Image(systemName: model.hasUnsavedChanges ? "circle.fill" : "checkmark.circle")
                                 .foregroundStyle(model.hasUnsavedChanges ? Color.orange : Color.secondary).font(.caption)
-                            Text(model.canConfigure ? (model.hasUnsavedChanges ? "保存していない変更があります" : "設定は保存済みです") : "変更するには、上部の「停止」を押してください")
+                            Text(model.canConfigure ? (model.hasUnsavedChanges ? L10n.text("保存していない変更があります") : L10n.text("設定は保存済みです")) : L10n.text("変更するには、上部の「停止」を押してください"))
                                 .font(.caption).foregroundStyle(.secondary)
                             Spacer()
                             if model.hasUnsavedChanges {
-                                Button("変更を取り消す") { model.discardSettingsChanges() }.disabled(!model.canConfigure)
+                                Button(L10n.text("変更を取り消す")) { model.discardSettingsChanges() }.disabled(!model.canConfigure)
                             }
-                            Button("変更を保存") { model.saveSettings() }.buttonStyle(.borderedProminent)
+                            Button(L10n.text("変更を保存")) { model.saveSettings() }.buttonStyle(.borderedProminent)
                                 .keyboardShortcut("s").disabled(!model.canConfigure || !model.hasUnsavedChanges)
                         }.padding(.horizontal, 24).padding(.vertical, 13)
                     }.background(.bar)
                 }
             }
         }
+        .id(model.settings.language)
+        .environment(\.locale, model.settings.language.locale)
         .tint(.teal)
         .frame(minWidth: 880, minHeight: 650)
         .sheet(item: sheet) { presentation in

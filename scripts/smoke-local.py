@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline checks on generated, generic Japanese speech; never records the microphone."""
+"""Offline checks on generated, generic Japanese or English speech; never records the microphone."""
 import argparse
 import contextlib
 import json
@@ -19,9 +19,15 @@ SAMPLES = [
     "明日の午後三時から三十分、資料の内容を確認します。",
 ]
 
+ENGLISH_SAMPLES = [
+    "Okay, assistant. Please briefly explain today's schedule.",
+    "Read the text on the screen and summarize the three most important points.",
+    "We will review the documents tomorrow afternoon for thirty minutes.",
+]
+
 
 def normalized(text):
-    return "".join(c for c in unicodedata.normalize("NFKC", text) if c.isalnum())
+    return "".join(c for c in unicodedata.normalize("NFKC", text).lower() if c.isalnum())
 
 
 def distance(a, b):
@@ -38,9 +44,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="whisper")
     parser.add_argument("--voice", action="store_true")
+    parser.add_argument("--language", choices=["ja", "en"], default="ja")
     args = parser.parse_args()
+    samples = ENGLISH_SAMPLES if args.language == "en" else SAMPLES
+    voice = "Samantha" if args.language == "en" else "Kyoko"
     os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1", DO_NOT_TRACK="1")
-    work = ROOT / ".build/smoke"
+    work = ROOT / (".build/smoke-en" if args.language == "en" else ".build/smoke")
     work.mkdir(parents=True, exist_ok=True)
     os.environ["NUMBA_CACHE_DIR"] = str(work / "numba")
     sys.path.insert(0, str(ROOT / "worker"))
@@ -49,13 +58,13 @@ def main():
     import numpy as np
     import soundfile as sf
     import mlx.core as mx
-    summary = {"model": args.model, "synthetic_speech_only": True, "samples": []}
-    for index, text in enumerate(SAMPLES):
+    summary = {"language": args.language, "model": args.model, "synthetic_speech_only": True, "samples": []}
+    for index, text in enumerate(samples):
         path = work / f"sample-{index}.wav"
-        subprocess.run(["/usr/bin/say", "-v", "Kyoko", "--data-format=LEI16@16000", "-o", str(path), text], check=True)
+        subprocess.run(["/usr/bin/say", "-v", voice, "--data-format=LEI16@16000", "-o", str(path), text], check=True)
         started = time.perf_counter()
         with contextlib.redirect_stdout(sys.stderr):
-            result = worker.transcribe({"audio": str(path), "model": str(DATA / "models" / args.model)})
+            result = worker.transcribe({"language": args.language, "audio": str(path), "model": str(DATA / "models" / args.model)})
         elapsed = time.perf_counter() - started
         expected, actual = normalized(text), normalized(result.get("text", ""))
         record = {"index": index, "audio_seconds": sf.info(path).duration, "elapsed_seconds": round(elapsed, 3),
@@ -71,12 +80,12 @@ def main():
                  "tone": .05 * np.sin(2 * np.pi * 440 * np.arange(80000) / 16000)}[kind]
         path = work / f"{kind}.wav"; sf.write(path, audio, 16000)
         with contextlib.redirect_stdout(sys.stderr):
-            result = worker.transcribe({"audio": str(path), "model": str(DATA / "models" / args.model)})
+            result = worker.transcribe({"language": args.language, "audio": str(path), "model": str(DATA / "models" / args.model)})
         assert not result["text"], kind
         summary[kind + "_rejected"] = True
     reference = str(work / "sample-1.wav")
     with contextlib.redirect_stdout(sys.stderr):
-        result = worker.transcribe({"audio": reference, "model": str(DATA / "models" / args.model),
+        result = worker.transcribe({"language": args.language, "audio": reference, "model": str(DATA / "models" / args.model),
                                    "verify_speaker": True, "reference_audio": reference, "speaker_threshold": .76})
     summary["identical_synthetic_speaker_similarity"] = result.get("similarity")
     assert result.get("text"), "Speaker embedding could not match identical audio"
@@ -89,15 +98,16 @@ def main():
         voice_model = next((DATA / "models" / name for name in ("voice-1.7b", "voice") if (DATA / "models" / name / "config.json").is_file()), DATA / "models/voice-1.7b")
         summary["voice_model"] = voice_model.name
         with contextlib.redirect_stdout(sys.stderr):
-            worker.synthesize({"model": str(voice_model), "reference_audio": reference,
-                               "reference_text": SAMPLES[1], "text": "音声の確認です。必要な情報を分かりやすく説明します。", "output": str(output)})
+            worker.synthesize({"language": args.language, "model": str(voice_model), "reference_audio": reference,
+                               "reference_text": samples[1], "text": "This is a voice test. I will explain the information clearly." if args.language == "en" else "音声の確認です。必要な情報を分かりやすく説明します。", "output": str(output)})
         wave, rate = sf.read(output)
         assert np.isfinite(wave).all() and len(wave) > rate and np.max(np.abs(wave)) > .001
         summary["tts_seconds"] = round(time.perf_counter() - started, 3)
         summary["tts_audio_seconds"] = len(wave) / rate
         with contextlib.redirect_stdout(sys.stderr):
-            roundtrip = worker.transcribe({"audio": str(output), "model": str(DATA / "models" / args.model)})
+            roundtrip = worker.transcribe({"language": args.language, "audio": str(output), "model": str(DATA / "models" / args.model)})
         summary["tts_roundtrip_text"] = roundtrip.get("text", "")
+        assert summary["tts_roundtrip_text"], "Generated speech could not be recognized"
     summary["combined_peak_rss_gib"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024**3, 3)
     summary["combined_peak_metal_gib"] = round(mx.get_peak_memory() / 1024**3, 3)
     (work / f"{args.model}-report.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")

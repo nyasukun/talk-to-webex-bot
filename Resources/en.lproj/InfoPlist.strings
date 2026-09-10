@@ -1,0 +1,2 @@
+"NSMicrophoneUsageDescription" = "Recognizes wake phrases and commands on this Mac, and records reference audio.";
+"NSScreenCaptureUsageDescription" = "Captures the front window and sends it to the selected Webex DM when screenshot and OCR are enabled.";

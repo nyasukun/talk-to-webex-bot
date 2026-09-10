@@ -8,7 +8,7 @@ enum PrivateFiles {
         let manager = FileManager.default
         try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         guard try manager.attributesOfItem(atPath: directory.path)[.type] as? FileAttributeType == .typeDirectory else {
-            throw RelayError.message("保存先が通常のフォルダではありません。保存先を確認してください。")
+            throw RelayError.message(L10n.text("保存先が通常のフォルダではありません。保存先を確認してください。"))
         }
         try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
     }
@@ -39,10 +39,10 @@ enum PrivateFiles {
         var status = stat()
         guard fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
               status.st_size <= maximumBytes else {
-            throw RelayError.message("保存ファイルの形式またはサイズが不正です。")
+            throw RelayError.message(L10n.text("保存ファイルの形式またはサイズが不正です。"))
         }
         let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
-        guard data.count <= maximumBytes else { throw RelayError.message("保存ファイルが上限を超えています。") }
+        guard data.count <= maximumBytes else { throw RelayError.message(L10n.text("保存ファイルが上限を超えています。")) }
         return data
     }
 }

@@ -32,7 +32,7 @@ extension AppModel {
                 try? FileManager.default.removeItem(at: target)
                 throw error
             }
-            detail = "参照音声をこのMacのアプリ用フォルダへコピーしました。他の設定は「変更を保存」で適用します。"
+            detail = L10n.text("参照音声をこのMacのアプリ用フォルダへコピーしました。他の設定は「変更を保存」で適用します。")
         } catch { fail(error) }
     }
     func startReference(kind: ReferenceKind) async {
@@ -40,7 +40,7 @@ extension AppModel {
         stop()
         let run = epoch
         phase = .preparing
-        detail = "許可済みのマイクで参照音声を録音します。"
+        detail = L10n.text("許可済みのマイクで参照音声を録音します。")
         do {
             try Permissions.requireMicrophone()
             guard run == epoch else { return }
@@ -48,13 +48,13 @@ extension AppModel {
             let url = kind.newFileURL()
             let recorder = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 24000,
                                                                      AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16])
-            guard recorder.record(forDuration: 30) else { throw RelayError.message("参照音声の録音を開始できません。") }
+            guard recorder.record(forDuration: 30) else { throw RelayError.message(L10n.text("参照音声の録音を開始できません。")) }
             referenceRecorder = recorder
             referenceKind = kind
             referenceURL = url
             referenceRecording = true
             phase = .recording
-            detail = "参照音声を録音中です。10〜20秒話し、録音終了を押してください（最大30秒）。"
+            detail = L10n.text("参照音声を録音中です。10〜20秒話し、録音終了を押してください（最大30秒）。")
             launch { [self] _ in
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 if !Task.isCancelled { finishReference() }
@@ -73,10 +73,10 @@ extension AppModel {
             let audioFile = try AVAudioFile(forReading: url)
             guard Double(audioFile.length) / audioFile.processingFormat.sampleRate >= 3 else {
                 try? FileManager.default.removeItem(at: url)
-                throw RelayError.message("録音が3秒未満です。10〜20秒の参照音声を録り直してください。")
+                throw RelayError.message(L10n.text("録音が3秒未満です。10〜20秒の参照音声を録り直してください。"))
             }
             try persistReference(kind: referenceKind, path: url.path)
-            detail = "参照音声を保存しました。これは追加学習ではありません。声の再現用には読んだ本文も入力してください。"
+            detail = L10n.text("参照音声を保存しました。これは追加学習ではありません。声の再現用には読んだ本文も入力してください。")
         } catch { fail(error) }
     }
 }

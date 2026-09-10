@@ -36,7 +36,7 @@ import RelayCore
         let player = try AVAudioPlayer(data: Self.wave())
         player.volume = Float(max(0, min(1, volume)))
         player.numberOfLoops = -1
-        guard player.play() else { throw RelayError.message("返信待ちのソナー音を再生できません。") }
+        guard player.play() else { throw RelayError.message(L10n.text("返信待ちのソナー音を再生できません。")) }
         self.player = player
     }
     func stop() {

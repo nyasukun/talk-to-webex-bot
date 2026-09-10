@@ -1,3 +1,4 @@
+import RelayCore
 import SwiftUI
 import AppKit
 
@@ -21,12 +22,12 @@ struct LogsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 ViewThatFits(in: .horizontal) {
                     HStack {
-                        Text("処理の履歴").font(.title2.weight(.semibold))
+                        Text(L10n.text("処理の履歴")).font(.title2.weight(.semibold))
                         Spacer()
                         actions
                     }
                     HStack {
-                        Text("処理の履歴").font(.title2.weight(.semibold))
+                        Text(L10n.text("処理の履歴")).font(.title2.weight(.semibold))
                         Spacer()
                         actions.labelStyle(.iconOnly)
                     }
@@ -42,7 +43,7 @@ struct LogsView: View {
                         searchField
                     }
                 }
-                if log.storageFailed { Label("ログの保存に失敗しました。画面内の履歴は確認できます。", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
+                if log.storageFailed { Label(L10n.text("ログの保存に失敗しました。画面内の履歴は確認できます。"), systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
             }.padding(24).background(.bar)
             Divider()
             if showTests {
@@ -54,7 +55,7 @@ struct LogsView: View {
                     if filtered.isEmpty {
                         VStack(spacing: 12) {
                             Image(systemName: "list.bullet.rectangle").font(.largeTitle).foregroundStyle(.tertiary)
-                            Text("該当するログはありません").foregroundStyle(.secondary)
+                            Text(L10n.text("該当するログはありません")).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity).padding(.vertical, 70)
                     }
                     ForEach(filtered) { entry in
@@ -64,7 +65,7 @@ struct LogsView: View {
                                 .foregroundStyle(entry.level == .error ? Color.red : entry.level == .warning ? Color.orange : Color.teal)
                             VStack(alignment: .leading, spacing: 5) {
                                 HStack {
-                                    Text(entry.category.rawValue).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                                    Text(entry.category.title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
                                     Spacer()
                                     Text(entry.date.formatted(date: .omitted, time: .standard)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                                         .help(entry.date.formatted(date: .abbreviated, time: .standard))
@@ -79,72 +80,72 @@ struct LogsView: View {
             }
             Divider()
             HStack {
-                Text("\(filtered.count)件 · このMacに直近500件を保存").font(.caption)
+                Text(L10n.text("\(filtered.count)件 · このMacに直近500件を保存")).font(.caption)
                 Spacer()
-                Text("本文・宛先・認証情報は記録しません").font(.caption)
+                Text(L10n.text("本文・宛先・認証情報は記録しません")).font(.caption)
             }.foregroundStyle(.secondary).padding(14)
         }.onChange(of: search) { _, _ in copied = false }
             .onChange(of: category) { _, _ in copied = false }
             .onChange(of: errorsOnly) { _, _ in copied = false }
             .onReceive(log.$entries) { _ in copied = false }
-            .alert("診断ログを消去しますか？", isPresented: $confirmClear) {
-                Button("取り消す", role: .cancel) {}
-                Button("消去", role: .destructive) { log.clear() }
-            } message: { Text("このMacに保存された履歴を消去します。必要な場合は先にログをコピーしてください。") }
+            .alert(L10n.text("診断ログを消去しますか？"), isPresented: $confirmClear) {
+                Button(L10n.text("取り消す"), role: .cancel) {}
+                Button(L10n.text("消去"), role: .destructive) { log.clear() }
+            } message: { Text(L10n.text("このMacに保存された履歴を消去します。必要な場合は先にログをコピーしてください。")) }
     }
     private var actions: some View {
         HStack {
-            Button("不具合を報告", systemImage: "ladybug") { model.presentIssueReport() }
-                .disabled(!model.canConfigure).help("停止中に報告用の下書きを開きます")
-            Button(showTests ? "テストを閉じる" : "診断テスト", systemImage: "stethoscope") { showTests.toggle() }.help("診断テストを表示・非表示")
-            Button(copied ? "コピー済み" : "ログをコピー", systemImage: "doc.on.doc") {
+            Button(L10n.text("不具合を報告"), systemImage: "ladybug") { model.presentIssueReport() }
+                .disabled(!model.canConfigure).help(L10n.text("停止中に報告用の下書きを開きます"))
+            Button(showTests ? L10n.text("テストを閉じる") : L10n.text("診断テスト"), systemImage: "stethoscope") { showTests.toggle() }.help(L10n.text("診断テストを表示・非表示"))
+            Button(copied ? L10n.text("コピー済み") : L10n.text("ログをコピー"), systemImage: "doc.on.doc") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(log.text(filtered), forType: .string)
                 copied = true
-            }.disabled(filtered.isEmpty).help("表示中のログをコピー")
-            Button("ログを消去", systemImage: "trash") { confirmClear = true }.labelStyle(.iconOnly).help("診断ログを消去").disabled(log.entries.isEmpty)
+            }.disabled(filtered.isEmpty).help(L10n.text("表示中のログをコピー"))
+            Button(L10n.text("ログを消去"), systemImage: "trash") { confirmClear = true }.labelStyle(.iconOnly).help(L10n.text("診断ログを消去")).disabled(log.entries.isEmpty)
         }
     }
     private var filters: some View {
         HStack {
-            Picker("分類", selection: $category) {
-                Text("すべて").tag(nil as LogCategory?)
-                ForEach(LogCategory.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+            Picker(L10n.text("分類"), selection: $category) {
+                Text(L10n.text("すべて")).tag(nil as LogCategory?)
+                ForEach(LogCategory.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
             }.frame(width: 185)
-            Toggle("注意・エラーのみ", isOn: $errorsOnly).toggleStyle(.checkbox)
+            Toggle(L10n.text("注意・エラーのみ"), isOn: $errorsOnly).toggleStyle(.checkbox)
         }
     }
     private var searchField: some View {
-        TextField("ログを検索", text: $search).textFieldStyle(.roundedBorder).accessibilityLabel("ログを検索")
+        TextField(L10n.text("ログを検索"), text: $search).textFieldStyle(.roundedBorder).accessibilityLabel(L10n.text("ログを検索"))
     }
     private var diagnosticTests: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button("マイクを5秒テスト", systemImage: "mic") { model.testMicrophone() }.disabled(!model.canConfigure || model.permissionSnapshot.microphone != .allowed)
-                Button("ローカル環境を診断", systemImage: "desktopcomputer") { Task { await model.checkLocal() } }.disabled(!model.canConfigure)
+                Button(L10n.text("マイクを5秒テスト"), systemImage: "mic") { model.testMicrophone() }.disabled(!model.canConfigure || model.permissionSnapshot.microphone != .allowed)
+                Button(L10n.text("ローカル環境を診断"), systemImage: "desktopcomputer") { Task { await model.checkLocal() } }.disabled(!model.canConfigure)
                 Spacer(minLength: 0)
             }
             if let progress = model.microphoneTestProgress {
-                ProgressView("5秒間のテスト録音", value: progress).font(.caption)
+                ProgressView(L10n.text("5秒間のテスト録音"), value: progress).font(.caption)
             }
             HStack(spacing: 10) {
-                Label("マイク入力", systemImage: "mic").font(.caption).foregroundStyle(.secondary)
-                ProgressView(value: Double(model.level)).frame(width: 120).accessibilityLabel("診断中のマイク入力レベル")
+                Label(L10n.text("マイク入力"), systemImage: "mic").font(.caption).foregroundStyle(.secondary)
+                ProgressView(value: Double(model.level)).frame(width: 120).accessibilityLabel(L10n.text("診断中のマイク入力レベル"))
                 Spacer()
-                Text(model.phase.rawValue).font(.caption).foregroundStyle(.secondary)
+                Text(model.phase.title).font(.caption).foregroundStyle(.secondary)
             }
             Text(model.detail).font(.callout).foregroundStyle(model.phase == .error ? Color.orange : Color.primary).textSelection(.enabled)
             if !model.diagnostics.isEmpty { Text(model.diagnostics).font(.caption).textSelection(.enabled) }
             Text(model.audioStatus).font(.caption).foregroundStyle(.secondary)
             if !model.recognizedInput.isEmpty {
-                Text("直近の認識結果（保存しません）").font(.caption.weight(.medium))
+                Text(L10n.text("直近の認識結果（保存しません）")).font(.caption.weight(.medium))
                 Text(model.recognizedInput).font(.callout).textSelection(.enabled).lineLimit(3)
             }
             HStack {
-                TextField("接続テストで送る指示", text: $model.testInput)
-                Button("送信内容を確認") { model.prepareTextTest() }.disabled(!model.canConfigure)
+                TextField(L10n.text("接続テストで送る指示"), text: $model.testInput)
+                Button(L10n.text("送信内容を確認")) { model.prepareTextTest() }.disabled(!model.canConfigure)
             }
-            Text("マイクテストは送信しません。接続テストは宛先と本文を確認してから送信します。").font(.caption).foregroundStyle(.secondary)
+            Text(L10n.text("マイクテストは送信しません。接続テストは宛先と本文を確認してから送信します。")).font(.caption).foregroundStyle(.secondary)
         }
     }
 }

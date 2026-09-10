@@ -19,6 +19,7 @@ import RelayCore
         case waiting = "返信待ち"
         case speaking = "読み上げ"
         case error = "エラー"
+        var title: String { L10n.key(rawValue) }
     }
     struct Draft: Identifiable {
         let id = UUID()
@@ -30,6 +31,10 @@ import RelayCore
     }
     @Published var settings: Settings {
         didSet {
+            if oldValue.language != settings.language {
+                L10n.language = settings.language
+                refreshLanguagePresentation(from: oldValue.language)
+            }
             if oldValue.includeScreen != settings.includeScreen { refreshPermissions() }
             if oldValue.roomID != settings.roomID { lastReplyTarget = nil }
             if oldValue.preventIdleSleep != settings.preventIdleSleep { updateStandbyActivity() }
@@ -51,28 +56,28 @@ import RelayCore
     @Published var phase: Phase = .stopped
     @Published var indicator: RelayIndicator = .idle
     @Published var lastReplyTarget: ThreadReplyTarget?
-    @Published var detail = "設定を保存して待受を開始してください。"
+    @Published var detail = L10n.text("設定を保存して待受を開始してください。")
     @Published var tokenInput = ""
-    @Published var tokenStatus = "未確認"
+    @Published var tokenStatus = L10n.text("未確認")
     @Published var rooms: [Room] = []
     @Published var query = "" { didSet { if query != oldValue { searchRooms() } } }
     @Published var roomsLoading = false
-    @Published var roomSearchStatus = "最近のDMを最大5件表示します。"
+    @Published var roomSearchStatus = L10n.text("最近のDMを最大5件表示します。")
     @Published var busy = false
     @Published var level: Float = 0
     @Published var microphoneTestProgress: Double?
     @Published var transcript = ""
     @Published var reply = ""
-    @Published var replyMonitoringStatus = "返信監視はまだ実行していません。"
-    @Published var voiceStandbyStatus = "音声待機: 未開始"
+    @Published var replyMonitoringStatus = L10n.text("返信監視はまだ実行していません。")
+    @Published var voiceStandbyStatus = L10n.text("音声待機: 未開始")
     @Published var diagnostics = ""
-    @Published var audioStatus = "マイク未開始"
+    @Published var audioStatus = L10n.text("マイク未開始")
     @Published var recognizedInput = ""
     @Published var draft: Draft?
     @Published var listening = false { didSet { updateStandbyActivity() } }
     @Published var referenceRecording = false
-    @Published var testInput = "接続確認です。短く返答してください。"
-    @Published var speechTestText = """
+    @Published var testInput = L10n.text("接続確認です。短く返答してください。")
+    static let defaultSpeechTestText: L10n.Message = """
     ウェブエックスの接続を確認しました。
     エーピーアイの確認間隔はひゃくミリ秒です。
     会議はじゅうさんじから始まります。
@@ -83,6 +88,7 @@ import RelayCore
     音量はプラスボタンで調整できます。
     これで最後の文です。
     """
+    @Published var speechTestText = L10n.text(defaultSpeechTestText)
     var showMainWindow: (() -> Void)?
     let recorder = AudioRecorder()
     let worker = LocalWorker()
@@ -118,11 +124,14 @@ import RelayCore
     init(preview: Bool = false, openPortal: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }) {
         isPreview = preview
         self.openPortal = openPortal
+        let previousLanguage = L10n.language
         let initial = preview ? Settings() : PrivateStorage.load()
         settings = initial
         savedSettings = initial
         permissionSnapshot = preview ? PermissionSnapshot(microphone: .allowed, screen: true) : Permissions.snapshot()
         logs = preview ? DiagnosticLog() : DiagnosticLog(file: PrivateStorage.directory.appendingPathComponent("diagnostics/events.json"))
+        L10n.language = initial.language
+        refreshLanguagePresentation(from: previousLanguage)
         guard !preview else { return }
         logs.record(.launched)
         PrivateStorage.clearTransient()
@@ -134,6 +143,25 @@ import RelayCore
             }
         }
     }
+    func changeLanguage(to language: AppLanguage) {
+        guard canConfigure, settings.language != language else { return }
+        var updated = settings
+        updated.changeLanguage(to: language)
+        settings = updated
+    }
+
+    private func refreshLanguagePresentation(from previous: AppLanguage) {
+        for path in [\AppModel.detail, \.tokenStatus, \.roomSearchStatus, \.replyMonitoringStatus,
+                     \.voiceStandbyStatus, \.audioStatus] {
+            self[keyPath: path] = L10n.relocalizeStatus(self[keyPath: path], from: previous)
+        }
+        if speechTestText == L10n.text(Self.defaultSpeechTestText, language: previous) {
+            speechTestText = L10n.text(Self.defaultSpeechTestText)
+        }
+        let testMessage: L10n.Message = "接続確認です。短く返答してください。"
+        if testInput == L10n.text(testMessage, language: previous) { testInput = L10n.text(testMessage) }
+    }
+
     private func persistSettings() throws {
         try PrivateStorage.save(settings)
         savedSettings = settings
@@ -146,7 +174,7 @@ import RelayCore
     func discardSettingsChanges() {
         guard canConfigure else { return }
         settings = savedSettings
-        detail = "未保存の変更を取り消しました。"
+        detail = L10n.text("未保存の変更を取り消しました。")
         refreshPermissions()
     }
     func presentIssueReport() {
@@ -166,7 +194,7 @@ import RelayCore
         do {
             try settings.validate()
             try persistSettings()
-            detail = "設定をこのMacに保存しました。"
+            detail = L10n.text("設定をこのMacに保存しました。")
             refreshPermissions()
         } catch { fail(error) }
     }
@@ -184,7 +212,7 @@ import RelayCore
                 permissionError = false
                 if phase == .error {
                     phase = .stopped
-                    detail = "必要な権限を確認しました。操作を開始できます。"
+                    detail = L10n.text("必要な権限を確認しました。操作を開始できます。")
                 }
             }
         } catch {
@@ -193,7 +221,7 @@ import RelayCore
             permissionError = true
             phase = .error
             detail = error.localizedDescription
-            if wasSending { detail += " 送信中だったため成否はWebexのDMで確認してください。自動再送しません。" }
+            if wasSending { detail += L10n.text(" 送信中だったため成否はWebexのDMで確認してください。自動再送しません。") }
         }
     }
     func configureMicrophonePermission() async {
@@ -215,7 +243,7 @@ import RelayCore
         stop()
         audioRecovery.reset()
         phase = .recognizing
-        detail = "ローカル音声環境とWebex認証を確認しています。"
+        detail = L10n.text("ローカル音声環境とWebex認証を確認しています。")
         launch { [self] run in
             try Permissions.snapshot().require(includeScreen: settings.includeScreen)
             try validateDestination()
@@ -225,7 +253,7 @@ import RelayCore
             let person = try await connection().me()
             guard run == epoch else { return }
             ownID = person.id
-            if settings.speakerVerification && !FileManager.default.fileExists(atPath: settings.speakerAudioPath) { throw RelayError.message("本人照合用の参照音声を録音または選択してください。") }
+            if settings.speakerVerification && !FileManager.default.fileExists(atPath: settings.speakerAudioPath) { throw RelayError.message(L10n.text("本人照合用の参照音声を録音または選択してください。")) }
             listening = true
             try await startRecorder(run: run)
         }
@@ -250,18 +278,18 @@ import RelayCore
             self.lastMeterUpdate = Date()
             self.level = value
             let rms = Double(value) / 15
-            self.audioStatus = String(format: "マイク入力あり: %.1f dB / 検出しきい値 %.1f dB", 20 * log10(max(rms, 0.000001)), 20 * log10(self.settings.minimumRMS))
+            self.audioStatus = String(format: L10n.text("マイク入力あり: %.1f dB / 検出しきい値 %.1f dB"), 20 * log10(max(rms, 0.000001)), 20 * log10(self.settings.minimumRMS))
             if [.listening, .recording].contains(self.phase) { self.phase = value > Float(self.settings.minimumRMS * 15) ? .recording : .listening }
         } }
         phase = .preparing
-        detail = "許可済みのマイク入力を開始しています。"
-        audioStatus = "入力デバイス: \(AVCaptureDevice.default(for: .audio)?.localizedName ?? "見つかりません") — 音声フレーム待ち"
+        detail = L10n.text("許可済みのマイク入力を開始しています。")
+        audioStatus = L10n.text("入力デバイス: \(AVCaptureDevice.default(for: .audio)?.localizedName ?? L10n.text("見つかりません")) — 音声フレーム待ち")
         try await recorder.start(silenceSeconds: settings.silenceSeconds, minimumRMS: settings.minimumRMS, voiceProcessing: settings.voiceProcessing)
         logs.record(.microphoneStarted, category: .audio, metrics: [.sampleRate: recorder.inputFormat.rate, .channels: recorder.inputFormat.channels])
         if run != epoch || !listening { recorder.stop() }
         else {
             phase = .listening
-            detail = "合言葉を待っています。停止ボタンでマイクを解放します。"
+            detail = L10n.text("合言葉を待っています。停止ボタンでマイクを解放します。")
             inputWatchdog?.cancel()
             inputWatchdog = Task {
                 while !Task.isCancelled, run == epoch, listening {
@@ -280,7 +308,7 @@ import RelayCore
         logs.record(.inputInterrupted, category: .audio, level: .warning)
         guard audioRecovery.permit(at: Date()) else {
             logs.record(.inputRecoveryFailed, category: .audio, level: .error)
-            fail(RelayError.message("マイク入力を再接続できませんでした。macOSと会議アプリの入力デバイスを確認し、マイクテストを実行してください。"))
+            fail(RelayError.message(L10n.text("マイク入力を再接続できませんでした。macOSと会議アプリの入力デバイスを確認し、マイクテストを実行してください。")))
             return
         }
         epoch = UUID()
@@ -295,13 +323,13 @@ import RelayCore
         indicator = .idle
         level = 0
         phase = .preparing
-        detail = "マイクの変更を検出しました。入力を再接続しています。"
+        detail = L10n.text("マイクの変更を検出しました。入力を再接続しています。")
         launch { [self] next in
             try await Task.sleep(nanoseconds: 350_000_000)
             guard next == epoch, listening else { return }
             try await startRecorder(run: next)
             logs.record(.inputRecovered, category: .audio)
-            detail = "マイクを再接続しました。合言葉からもう一度話してください。"
+            detail = L10n.text("マイクを再接続しました。合言葉からもう一度話してください。")
         }
     }
     private func receive(_ chunk: AudioRecorder.Chunk, run: UUID) {
@@ -333,8 +361,8 @@ import RelayCore
         if processing { worker.shutdown() }
         phase = .listening
         detail = event == .utteranceDiscarded
-            ? "長い音声区間を破棄しました。常時待受は継続しています。一呼吸置き、合言葉から話してください。"
-            : "認識待ちの音声を破棄しました。常時待受は継続しています。合言葉から話してください。"
+            ? L10n.text("長い音声区間を破棄しました。常時待受は継続しています。一呼吸置き、合言葉から話してください。")
+            : L10n.text("認識待ちの音声を破棄しました。常時待受は継続しています。合言葉から話してください。")
         recognizedInput = ""
         logs.record(event, category: .audio, level: .warning)
     }
@@ -353,10 +381,10 @@ import RelayCore
                 guard revision == inputRevision else { continue }
                 updateSpeakerDiagnostics(result)
                 let text = result["text"] as? String ?? ""
-                recognizedInput = text.isEmpty ? (result["rejected"] as? String ?? "音声を認識できませんでした。") : text
+                recognizedInput = text.isEmpty ? (result["rejected"] as? String ?? L10n.text("音声を認識できませんでした。")) : text
                 logs.record(text.isEmpty ? .recognitionRejected : .recognitionAccepted, category: .audio, level: text.isEmpty ? .warning : .info)
                 if text.isEmpty {
-                    detail = result["rejected"] as? String ?? "発話を検出できませんでした。"
+                    detail = result["rejected"] as? String ?? L10n.text("発話を検出できませんでした。")
                     phase = .listening
                     continue
                 }
@@ -364,13 +392,13 @@ import RelayCore
                 case .ignored:
                     indicator = .idle
                     phase = .listening
-                    detail = "合言葉を待っています。"
+                    detail = L10n.text("合言葉を待っています。")
                 case .armed(let mode):
                     indicator = .receiving
                     logs.record(.wakeDetected, category: .audio)
                     phase = .listening
-                    detail = settings.verifiesSpeakerStrictly ? "合言葉を検出しました。続けて指示を話してください。指示の音声で本人照合します。" : "合言葉を受け付けました。続けて指示を話してください。短い指示も受け付けます。"
-                    if mode == .threadReply { detail = "返信用の合言葉を受け付けました。スレッドに返す内容を話してください。" }
+                    detail = settings.verifiesSpeakerStrictly ? L10n.text("合言葉を検出しました。続けて指示を話してください。指示の音声で本人照合します。") : L10n.text("合言葉を受け付けました。続けて指示を話してください。短い指示も受け付けます。")
+                    if mode == .threadReply { detail = L10n.text("返信用の合言葉を受け付けました。スレッドに返す内容を話してください。") }
                     armTimeout?.cancel()
                     armTimeout = Task {
                         try? await Task.sleep(nanoseconds: UInt64(settings.commandWaitSeconds * 1_000_000_000))
@@ -378,7 +406,7 @@ import RelayCore
                         if !processing && chunks.isEmpty {
                             wake.reset()
                             indicator = .idle
-                            detail = "指示の受付を区切り、次の合言葉を待っています。常時待受は継続しています。"
+                            detail = L10n.text("指示の受付を区切り、次の合言葉を待っています。常時待受は継続しています。")
                             logs.record(.commandWaitExpired, category: .audio)
                         }
                     }
@@ -391,14 +419,14 @@ import RelayCore
                     chunks = []
                     if settings.verifiesSpeakerStrictly {
                         phase = .recognizing
-                        detail = "送信前に指示の音声で本人照合しています。"
+                        detail = L10n.text("送信前に指示の音声で本人照合しています。")
                         let checked = try await worker.call(WorkerRequest.verifySpeaker(audio: file.path, settings: settings), python: settings.pythonPath)
                         guard run == epoch, listening else { return }
                         updateSpeakerDiagnostics(checked)
                         guard checked["accepted"] as? Bool == true else {
                             wake.reset()
                             indicator = .idle
-                            let reason = checked["rejected"] as? String ?? "本人照合を確認できませんでした。"
+                            let reason = checked["rejected"] as? String ?? L10n.text("本人照合を確認できませんでした。")
                             recognizedInput = reason
                             try await startRecorder(run: run)
                             detail = reason
@@ -419,11 +447,11 @@ import RelayCore
     }
     func prepare(command: String, run: UUID, forceConfirmation: Bool, mode: VoiceMode = .message) async throws {
         phase = .preparing
-        detail = "送信内容を準備しています。"
+        detail = L10n.text("送信内容を準備しています。")
         var snapshot = settings
         let target: ThreadReplyTarget?
         if mode == .threadReply {
-            guard let previous = lastReplyTarget else { throw RelayError.message("返信先がありません。このアプリで相手の返信を受け取ってから、返信用の合言葉を話してください。") }
+            guard let previous = lastReplyTarget else { throw RelayError.message(L10n.text("返信先がありません。このアプリで相手の返信を受け取ってから、返信用の合言葉を話してください。")) }
             try previous.require(roomID: snapshot.roomID)
             target = previous
             snapshot.template = snapshot.replyTemplate
@@ -439,7 +467,7 @@ import RelayCore
         if snapshot.confirmBeforeSending || forceConfirmation {
             self.draft = draft
             phase = .confirming
-            detail = "本文・画像・宛先を確認してください。"
+            detail = L10n.text("本文・画像・宛先を確認してください。")
             showMainWindow?()
             NSApp.activate(ignoringOtherApps: true)
         } else { try await send(draft, run: run) }
@@ -452,14 +480,14 @@ import RelayCore
     func cancelDraft() {
         draft = nil
         stop()
-        detail = "送信を取り消しました。"
+        detail = L10n.text("送信を取り消しました。")
     }
     private func send(_ draft: Draft, run: UUID) async throws {
         let client = try await connection(), snapshot = draft.settings
-        replyMonitoringStatus = snapshot.readReplies ? "送信後に返信を監視します。" : "返信の読み上げはOFFです。監視しません。"
+        replyMonitoringStatus = snapshot.readReplies ? L10n.text("送信後に返信を監視します。") : L10n.text("返信の読み上げはOFFです。監視しません。")
         logs.record(.sendStarted, category: .webex)
         phase = .sending
-        detail = "Webexへ送信しています。"
+        detail = L10n.text("Webexへ送信しています。")
         // Every send has a fresh identity check. Never infer validity from local save time.
         let person = try await client.me()
         guard run == epoch else { return }
@@ -471,7 +499,7 @@ import RelayCore
         indicator = .sent
         if draft.thread == nil { lastReplyTarget = nil }
         logs.record(.sendCompleted, category: .webex)
-        detail = "送信しました。"
+        detail = L10n.text("送信しました。")
         if snapshot.readReplies {
             try await monitor(client: client, sent: sent, baseline: baseline, settings: snapshot, run: run)
         }
@@ -479,25 +507,25 @@ import RelayCore
         try await resumeAfterInteraction(run: run)
     }
     private func monitor(client: WebexClient, sent: Message, baseline: [Message], settings: Settings, run: UUID) async throws {
-        guard let sentAt = parseDate(sent.created) else { throw RelayError.message("送信は完了しましたが、返信を照合する送信時刻がありません。Webexで確認してください。") }
+        guard let sentAt = parseDate(sent.created) else { throw RelayError.message(L10n.text("送信は完了しましたが、返信を照合する送信時刻がありません。Webexで確認してください。")) }
         if settings.waitingSound {
             do { try waitingSound.start(volume: settings.waitingSoundVolume) }
             catch {
-                diagnostics = "ソナー音を再生できません。返信監視は続けます。"
+                diagnostics = L10n.text("ソナー音を再生できません。返信監視は続けます。")
                 logs.record(.sonarFailed, category: .speech, level: .warning)
             }
         }
-        voiceStandbyStatus = settings.ttsEngine == "system" ? "音声待機: Mac標準音声" : "音声待機: 返信後に準備"
+        voiceStandbyStatus = settings.ttsEngine == "system" ? L10n.text("音声待機: Mac標準音声") : L10n.text("音声待機: 返信後に準備")
         let warmup: Task<Void, Error>? = settings.hotStandby && settings.ttsEngine == "qwen" ? Task {
             logs.record(.speechWarming, category: .speech)
-            voiceStandbyStatus = "音声待機: モデルと参照音声を準備中"
+            voiceStandbyStatus = L10n.text("音声待機: モデルと参照音声を準備中")
             do {
                 try await speech.warmup(settings: settings, worker: worker)
                 guard run == epoch, !Task.isCancelled else { return }
                 logs.record(.speechReady, category: .speech)
-                voiceStandbyStatus = "音声待機: 準備完了"
+                voiceStandbyStatus = L10n.text("音声待機: 準備完了")
             } catch {
-                if run == epoch { voiceStandbyStatus = "音声待機: 準備できませんでした" }
+                if run == epoch { voiceStandbyStatus = L10n.text("音声待機: 準備できませんでした") }
                 throw error
             }
         } : nil
@@ -515,7 +543,7 @@ import RelayCore
         while Date() < deadline, run == epoch {
             try Task.checkCancellation()
             phase = .waiting
-            detail = "返信の新着と本文更新を確認しています。"
+            detail = L10n.text("返信の新着と本文更新を確認しています。")
             do {
                 var messages = try await client.messages(roomID: sent.roomId, since: sentAt)
                 // Fetch known IDs directly even when they fall off the newest list page.
@@ -527,7 +555,7 @@ import RelayCore
                 guard run == epoch else { return }
                 let ready = tracker.ingest(messages, now: Date())
                 polls += 1
-                replyMonitoringStatus = "取得 \(polls)回 / 返信候補 \(tracker.candidateIDs.count)件 / 途中表示 \(tracker.busyMessageCount)件 / 同一IDの本文更新 \(tracker.bodyUpdateCount)回"
+                replyMonitoringStatus = L10n.text("取得 \(polls)回 / 返信候補 \(tracker.candidateIDs.count)件 / 途中表示 \(tracker.busyMessageCount)件 / 同一IDの本文更新 \(tracker.bodyUpdateCount)回")
                 if Date().timeIntervalSince(lastLog) >= 5 || lastUpdates != tracker.bodyUpdateCount || lastCandidates != tracker.candidateIDs.count || lastBusy != tracker.busyMessageCount || !ready.isEmpty {
                     logs.record(.replyProgress, category: .webex, metrics: [.polls: Double(polls), .candidates: Double(tracker.candidateIDs.count), .busyMessages: Double(tracker.busyMessageCount), .updates: Double(tracker.bodyUpdateCount)])
                     lastLog = Date()
@@ -535,12 +563,12 @@ import RelayCore
                     lastCandidates = tracker.candidateIDs.count
                     lastBusy = tracker.busyMessageCount
                 }
-                if tracker.interruptedByOtherRequest { throw RelayError.message("同じDMに別の送信がありました。返信の取り違えを避けるため読み上げ監視を終了しました。") }
+                if tracker.interruptedByOtherRequest { throw RelayError.message(L10n.text("同じDMに別の送信がありました。返信の取り違えを避けるため読み上げ監視を終了しました。")) }
                 if !ready.isEmpty {
                     if let message = tracker.readyMessages.last { lastReplyTarget = ThreadReplyTarget(message: message) }
                     reply = ready.joined(separator: "\n\n")
                     phase = .speaking
-                    detail = "返信を確認しました。最初の音声を準備しています。"
+                    detail = L10n.text("返信を確認しました。最初の音声を準備しています。")
                     let received = Date()
                     try await warmup?.value
                     guard run == epoch else { return }
@@ -549,31 +577,31 @@ import RelayCore
                     }, onProgress: recordSpeechProgress) {
                         waitingSound.stop()
                         logs.record(.speechStarted, category: .speech, metrics: [.seconds: Date().timeIntervalSince(received)])
-                        detail = "返信をローカル音声で読み上げています。"
-                        voiceStandbyStatus += String(format: " / 返信確定から再生開始 %.1f秒", Date().timeIntervalSince(received))
+                        detail = L10n.text("返信をローカル音声で読み上げています。")
+                        voiceStandbyStatus += String(format: L10n.text(" / 返信確定から再生開始 %.1f秒"), Date().timeIntervalSince(received))
                     }
                     logs.record(.speechCompleted, category: .speech)
-                    replyMonitoringStatus += " / 読み上げ完了"
+                    replyMonitoringStatus += L10n.text(" / 読み上げ完了")
                     return
                 }
                 failures = 0
             } catch RelayError.rateLimited(let delay) {
                 logs.record(.rateLimited, category: .webex, level: .warning, metrics: [.seconds: delay])
-                detail = "API制限の解除を待っています。送信の再実行は行いません。"
+                detail = L10n.text("API制限の解除を待っています。送信の再実行は行いません。")
                 let wait = min(delay, max(0, deadline.timeIntervalSinceNow))
                 try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             } catch let error as URLError {
                 logs.failure(error, category: .webex)
                 failures += 1
                 guard failures < 4 else { throw error }
-                detail = "接続を再確認しています（返信の取得のみ）。"
+                detail = L10n.text("接続を再確認しています（返信の取得のみ）。")
                 try await Task.sleep(nanoseconds: UInt64(min(30, pow(2, Double(failures))) * 1_000_000_000))
             }
             try await Task.sleep(nanoseconds: UInt64(settings.replyPollSeconds * 1_000_000_000))
         }
         if run == epoch {
             logs.record(.replyTimeout, category: .webex, level: .warning)
-            replyMonitoringStatus += " / 返信待ち終了（送信済み・再送なし・待受へ復帰）"
+            replyMonitoringStatus += L10n.text(" / 返信待ち終了（送信済み・再送なし・待受へ復帰）")
         }
     }
     private func resumeAfterInteraction(run: UUID) async throws {
@@ -588,7 +616,7 @@ import RelayCore
         if listening { try await startRecorder(run: run) }
         else {
             phase = .stopped
-            detail = "操作が完了しました。"
+            detail = L10n.text("操作が完了しました。")
         }
     }
     func requestScreenPermission() {
@@ -609,7 +637,7 @@ import RelayCore
         waitingSound.stop()
         speech.stop()
         worker.shutdown()
-        voiceStandbyStatus = "音声待機: 停止（モデルを解放）"
+        voiceStandbyStatus = L10n.text("音声待機: 停止（モデルを解放）")
         if referenceRecording {
             referenceRecorder?.stop()
             if let referenceURL { try? FileManager.default.removeItem(at: referenceURL) }
@@ -625,7 +653,7 @@ import RelayCore
         draft = nil
         phase = .stopped
         microphoneTestProgress = nil
-        detail = wasSending ? "送信中に停止しました。成否はWebexのDMで確認してください。自動再送しません。" : "停止しました。マイクを解放しています。"
+        detail = wasSending ? L10n.text("送信中に停止しました。成否はWebexのDMで確認してください。自動再送しません。") : L10n.text("停止しました。マイクを解放しています。")
     }
     func fail(_ error: Error) {
         let category: LogCategory

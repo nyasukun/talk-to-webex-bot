@@ -29,7 +29,7 @@ final class LocalWorker: @unchecked Sendable {
                         if let process = self.process { Self.terminate(process) }
                         throw CancellationError()
                     }
-                    guard let process = self.process, let input = self.input, let output = self.output else { throw RelayError.message("ローカル音声処理を起動できません。") }
+                    guard let process = self.process, let input = self.input, let output = self.output else { throw RelayError.message(L10n.text("ローカル音声処理を起動できません。")) }
                     let timeout = ["synthesize", "warm_speech", "next_speech"].contains(payload["action"] as? String ?? "") ? 600.0 : 180.0
                     let watchdog = DispatchWorkItem { Self.terminate(process) }
                     DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
@@ -48,14 +48,24 @@ final class LocalWorker: @unchecked Sendable {
                     guard !line.isEmpty, let result = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
                         self.processGeneration = -1
                         Self.terminate(process)
-                        throw RelayError.message("音声処理が終了しました。処理時間・メモリ・モデル配置を確認してください。")
+                        throw RelayError.message(L10n.text("音声処理が終了しました。処理時間・メモリ・モデル配置を確認してください。"))
                     }
-                    if let error = result["error"] as? String { throw RelayError.message(error) }
-                    continuation.resume(returning: result)
+                    let localized = Self.localizedResult(result)
+                    if let error = localized["error"] as? String { throw RelayError.message(error) }
+                    continuation.resume(returning: localized)
                 } catch { continuation.resume(throwing: error) }
             }
         }
     }
+    /// Translate only protocol-owned status fields. Recognized speech is always kept verbatim.
+    static func localizedResult(_ result: [String: Any], language: AppLanguage? = nil) -> [String: Any] {
+        var result = result
+        for field in ["error", "rejected", "speaker_note", "summary"] {
+            if let value = result[field] as? String { result[field] = L10n.key(value, language: language) }
+        }
+        return result
+    }
+
     private func launch(python: String) throws {
         if let process { Self.terminate(process) }
         try? input?.close()
@@ -64,10 +74,10 @@ final class LocalWorker: @unchecked Sendable {
         output = nil
         reader = WorkerResponseReader()
         guard python.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: python) else {
-            throw RelayError.message("Python環境がありません。scripts/setup-runtime.sh を実行してください。")
+            throw RelayError.message(L10n.text("Python環境がありません。scripts/setup-runtime.sh を実行してください。"))
         }
         guard let script = Bundle.main.resourceURL?.appendingPathComponent("worker/relay_worker.py"), FileManager.default.fileExists(atPath: script.path) else {
-            throw RelayError.message("音声処理がバンドルされていません。scripts/build.sh で.appをビルドしてください。")
+            throw RelayError.message(L10n.text("音声処理がバンドルされていません。scripts/build.sh で.appをビルドしてください。"))
         }
         let process = OfflineProcess.sandboxed([python, "-u", script.path]), stdin = Pipe(), stdout = Pipe()
         process.standardInput = stdin

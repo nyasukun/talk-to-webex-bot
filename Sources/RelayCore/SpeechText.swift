@@ -2,7 +2,7 @@ import Foundation
 
 /// Rewrites a chat reply into text a voice can read aloud.
 ///
-/// Markdown structure, links, code and pictographs are removed or replaced with short Japanese, symbols a
+/// Markdown structure, links, code and pictographs are removed or replaced with short spoken descriptions, symbols a
 /// voice would spell out get their spoken form, and compatibility characters are normalized. Only the
 /// spoken copy changes; the reply shown on screen stays as received.
 public enum SpeechText {
@@ -11,7 +11,9 @@ public enum SpeechText {
     public static let linkWord = "リンク"
     public static let emailWord = "メールアドレス"
 
-    public static func forSpeech(_ text: String) -> String {
+    public static func forSpeech(_ text: String, language: AppLanguage = .japanese) -> String {
+        let codeNotice = language == .japanese ? Self.codeNotice : "Code omitted."
+        let unreadableNotice = language == .japanese ? Self.unreadableNotice : "Please check the reply on screen."
         let source = text.precomposedStringWithCompatibilityMapping
             .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         var lines: [String] = []
@@ -30,10 +32,10 @@ public enum SpeechText {
                 continue
             }
             if fence != nil { continue }
-            lines.append(contentsOf: blockLines(line))
+            lines.append(contentsOf: blockLines(line, language: language))
         }
         if fence != nil { lines.append(codeNotice) }
-        let spoken = lines.map(inlineSpeech).filter { !$0.isEmpty }
+        let spoken = lines.map { inlineSpeech($0, language: language) }.filter { !$0.isEmpty }
         return spoken.isEmpty ? unreadableNotice : spoken.joined(separator: "\n")
     }
 
@@ -43,13 +45,13 @@ public enum SpeechText {
     }
 
     /// Block-level Markdown: rules, tables, quotes, headings and list markers.
-    static func blockLines(_ line: String) -> [String] {
+    static func blockLines(_ line: String, language: AppLanguage = .japanese) -> [String] {
         if line.contains(#/^([-*_])(\s*\1){2,}$/#) { return [] }
         let pipes = line.filter { $0 == "|" }.count
         if pipes >= 2, line.hasPrefix("|") || line.hasSuffix("|") || line.contains(" | ") {
             let cells = line.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             if cells.allSatisfy({ $0.contains(#/^:?-+:?$/#) }) { return [] }
-            return [cells.joined(separator: "、")]
+            return [cells.joined(separator: language == .japanese ? "、" : ", ")]
         }
         var text = Substring(line)
         while text.hasPrefix(">") {
@@ -58,13 +60,15 @@ public enum SpeechText {
         var result = String(text)
         result = result.replacing(#/^#{1,6}\s+/#, with: "").replacing(#/\s+#+$/#, with: "")
         result = result.replacing(#/^[-*+]\s+/#, with: "").replacing(#/^[・•●◦▪‣]\s*/#, with: "")
-        result = result.replacing(#/^(\d{1,3})[.)]\s+/#) { "\($0.output.1)、" }
+        result = result.replacing(#/^(\d{1,3})[.)]\s+/#) { "\($0.output.1)" + (language == .japanese ? "、" : ", ") }
         result = result.replacing(#/^\[[ xX]\]\s*/#, with: "")
         return [result]
     }
 
     /// Inline Markdown, links, HTML, spoken forms of symbols, and pictographs.
-    static func inlineSpeech(_ line: String) -> String {
+    static func inlineSpeech(_ line: String, language: AppLanguage = .japanese) -> String {
+        let linkWord = language == .japanese ? Self.linkWord : " link "
+        let emailWord = language == .japanese ? Self.emailWord : " email address "
         var text = line
         text = text.replacing(#/!\[([^\]]*)\]\([^)]*\)/#) { String($0.output.1) }
         text = text.replacing(#/\[([^\]]+)\]\([^)]*\)/#) { String($0.output.1) }
@@ -84,8 +88,10 @@ public enum SpeechText {
         // Emphasis hugs its text; "2 * 3" keeps its spaced operator.
         text = text.replacing(#/\*([^*\s](?:[^*]*?[^*\s])?)\*/#) { String($0.output.1) }
         text = text.replacing(#/(^|[\s(（「])_([^_\s][^_]*?)_(?=$|[\s、。,.!?！？)）」])/#) { "\($0.output.1)\($0.output.2)" }
-        text = text.replacing(#/(\d)\s*[~〜]\s*(?=\d)/#) { "\($0.output.1)から" }
-        for (symbol, spoken) in [("°C", "度"), ("%", "パーセント"), ("&", "アンド"), ("→", "、"), ("⇒", "、"), ("➡", "、"), ("⇨", "、"), ("※", "")] {
+        text = text.replacing(#/(\d)\s*[~〜]\s*(?=\d)/#) { "\($0.output.1)" + (language == .japanese ? "から" : " to ") }
+        let symbols = language == .japanese ? [("°C", "度"), ("%", "パーセント"), ("&", "アンド"), ("→", "、"), ("⇒", "、"), ("➡", "、"), ("⇨", "、"), ("※", "")]
+            : [("°C", " degrees Celsius "), ("%", " percent "), ("&", " and "), ("→", ", "), ("⇒", ", "), ("➡", ", "), ("⇨", ", "), ("※", "")]
+        for (symbol, spoken) in symbols {
             text = text.replacingOccurrences(of: symbol, with: spoken)
         }
         text = String(String.UnicodeScalarView(text.unicodeScalars.filter { !isPictograph($0) }))

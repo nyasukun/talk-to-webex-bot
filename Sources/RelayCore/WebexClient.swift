@@ -15,9 +15,9 @@ public final class WebexTransport: NSObject, HTTPTransport, URLSessionTaskDelega
     }()
     public override init() { super.init() }
     public func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        guard let url = request.url, WebexClient.isAllowed(url) else { throw RelayError.message("許可されていない通信先です。") }
+        guard let url = request.url, WebexClient.isAllowed(url) else { throw RelayError.message(L10n.text("許可されていない通信先です。")) }
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw RelayError.message("Webexからの応答を解釈できません。") }
+        guard let http = response as? HTTPURLResponse else { throw RelayError.message(L10n.text("Webexからの応答を解釈できません。")) }
         return (data, http)
     }
     public func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -43,18 +43,18 @@ public actor WebexClient {
     private func endpoint(_ path: String, query: [URLQueryItem] = []) throws -> URL {
         var components = URLComponents(string: "https://webexapis.com/v1/\(path)")!
         components.queryItems = query.isEmpty ? nil : query
-        guard let url = components.url, Self.isAllowed(url) else { throw RelayError.message("Webex URLが不正です。") }
+        guard let url = components.url, Self.isAllowed(url) else { throw RelayError.message(L10n.text("Webex URLが不正です。")) }
         return url
     }
     private func escaped(_ id: String) throws -> String {
         guard !id.isEmpty, id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_=".contains($0)) }) else {
-            throw RelayError.message("Webex IDが不正です。")
+            throw RelayError.message(L10n.text("Webex IDが不正です。"))
         }
         return id
     }
     private func request(url: URL, method: String = "GET", body: Data? = nil,
                          contentType: String? = nil) async throws -> (Data, HTTPURLResponse) {
-        guard Self.isAllowed(url) else { throw RelayError.message("ページリンクの通信先が不正です。") }
+        guard Self.isAllowed(url) else { throw RelayError.message(L10n.text("ページリンクの通信先が不正です。")) }
         try Task.checkCancellation()
         if retryAfter > Date() { throw RelayError.rateLimited(retryAfter.timeIntervalSinceNow) }
         var request = URLRequest(url: url)
@@ -78,7 +78,7 @@ public actor WebexClient {
             retryAfter = Date().addingTimeInterval(delay)
             throw RelayError.rateLimited(delay)
         case 500...599 where method == "POST": throw RelayError.ambiguousSend
-        default: throw RelayError.message("Webex APIエラー（HTTP \(response.statusCode)）。権限と接続を確認してください。")
+        default: throw RelayError.message(L10n.text("Webex APIエラー（HTTP \(response.statusCode)）。権限と接続を確認してください。"))
         }
     }
     public static func retryDelay(_ header: String?, now: Date) -> TimeInterval {
@@ -100,7 +100,7 @@ public actor WebexClient {
             guard part.contains("rel=\"next\"") || part.contains("rel=next") else { continue }
             guard let start = part.firstIndex(of: "<"), let end = part.firstIndex(of: ">"), start < end,
                   let url = URL(string: String(part[part.index(after: start)..<end])), isAllowed(url) else {
-                throw RelayError.message("Webexのページリンクが不正です。")
+                throw RelayError.message(L10n.text("Webexのページリンクが不正です。"))
             }
             return url
         }
@@ -112,7 +112,7 @@ public actor WebexClient {
                                                       .init(name: "sortBy", value: "lastactivity"), .init(name: "max", value: "5")])
         var matches: [Room] = [], visited = Set<URL>(), ids = Set<String>()
         while let url = next {
-            guard visited.insert(url).inserted, visited.count <= 2000 else { throw RelayError.message("DM検索のページ数が上限を超えました。条件を変更して再検索してください。") }
+            guard visited.insert(url).inserted, visited.count <= 2000 else { throw RelayError.message(L10n.text("DM検索のページ数が上限を超えました。条件を変更して再検索してください。")) }
             let (data, response) = try await request(url: url)
             try Task.checkCancellation()
             let page = try JSONDecoder().decode(Page<Room>.self, from: data).items
@@ -129,7 +129,7 @@ public actor WebexClient {
         var next: URL? = try endpoint("messages", query: [.init(name: "roomId", value: roomID), .init(name: "max", value: "100")])
         var all: [Message] = [], visited = Set<URL>(), ids = Set<String>()
         while let url = next {
-            guard visited.insert(url).inserted, visited.count <= 100 else { throw RelayError.message("メッセージのページ数が上限を超えました。") }
+            guard visited.insert(url).inserted, visited.count <= 100 else { throw RelayError.message(L10n.text("メッセージのページ数が上限を超えました。")) }
             let (data, response) = try await request(url: url)
             let page = try JSONDecoder().decode(Page<Message>.self, from: data).items
             all += page.filter { ids.insert($0.id).inserted }
@@ -146,10 +146,10 @@ public actor WebexClient {
     public func send(roomID: String, text: String, png: Data?, parentID: String? = nil) async throws -> Message {
         _ = try escaped(roomID)
         if let parentID { _ = try escaped(parentID) }
-        guard !text.isEmpty, text.utf8.count <= 7000 else { throw RelayError.message("送信本文は1〜7,000 UTF-8バイトで指定してください。") }
+        guard !text.isEmpty, text.utf8.count <= 7000 else { throw RelayError.message(L10n.text("送信本文は1〜7,000 UTF-8バイトで指定してください。")) }
         let body: Data, contentType: String
         if let png {
-            guard png.count < 10_000_000 else { throw RelayError.message("スクリーンショットが10 MBを超えています。") }
+            guard png.count < 10_000_000 else { throw RelayError.message(L10n.text("スクリーンショットが10 MBを超えています。")) }
             let boundary = "Relay-\(UUID().uuidString)"
             var multipart = Data()
             func append(_ value: String) { multipart.append(Data(value.utf8)) }

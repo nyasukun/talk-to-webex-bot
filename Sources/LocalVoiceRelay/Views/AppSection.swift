@@ -1,3 +1,4 @@
+import RelayCore
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
@@ -10,6 +11,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case advanced = "詳細設定"
     case logs = "ログ"
     var id: String { rawValue }
+    var title: String { L10n.key(rawValue) }
     var symbol: String {
         switch self {
         case .home: return "waveform"
@@ -36,16 +38,16 @@ enum AppSection: String, CaseIterable, Identifiable {
     func matches(_ search: String) -> Bool {
         let terms: String
         switch self {
-        case .home: terms = "開始 停止 待受 会話"
-        case .webex: terms = "API Key パスワード キーチェーン トークン 認証 DM 宛先"
-        case .input: terms = "合言葉 マイク 話者 録音 常時 ロック スリープ"
-        case .output: terms = "TTS Qwen 声 再生 ソナー ポーリング 監視 タイムアウト"
-        case .content: terms = "スクショ 画像 OCR プロンプト テンプレート スレッド 確認"
-        case .permissions: terms = "許可 画面収録 マイク"
-        case .advanced: terms = "Python モデル インストール 保存先 環境"
-        case .logs: terms = "テスト エラー 診断 履歴 不具合 報告 Issue サポート"
+        case .home: terms = L10n.text("開始 停止 待受 会話")
+        case .webex: terms = L10n.text("API Key パスワード キーチェーン トークン 認証 DM 宛先")
+        case .input: terms = L10n.text("合言葉 マイク 話者 録音 常時 ロック スリープ")
+        case .output: terms = L10n.text("TTS Qwen 声 再生 ソナー ポーリング 監視 タイムアウト")
+        case .content: terms = L10n.text("スクショ 画像 OCR プロンプト テンプレート スレッド 確認")
+        case .permissions: terms = L10n.text("許可 画面収録 マイク")
+        case .advanced: terms = L10n.text("Python モデル インストール 保存先 環境")
+        case .logs: terms = L10n.text("テスト エラー 診断 履歴 不具合 報告 Issue サポート")
         }
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return query.isEmpty || (rawValue + " " + terms).localizedStandardContains(query)
+        return query.isEmpty || (title + " " + terms).localizedStandardContains(query)
     }
 }

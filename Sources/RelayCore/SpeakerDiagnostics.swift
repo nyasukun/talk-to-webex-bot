@@ -20,18 +20,18 @@ public struct SpeakerDiagnostics {
             return (index: index, seconds: seconds, similarity: value)
         }
     }
-    public func summary(mode: String, threshold: Double) -> String {
+    public func summary(mode: String, threshold: Double, language: AppLanguage? = nil) -> String {
         guard let similarity else { return note }
         if mode == "prefer" {
-            return note + String(format: "\n話者類似度 %.3f（参考値・単独発話を拒否するしきい値ではありません）", similarity)
+            return note + String(format: L10n.text("\n話者類似度 %.3f（参考値・単独発話を拒否するしきい値ではありません）", language: language), similarity)
         }
-        var text = String(format: "話者類似度 %.3f（しきい値 %.3f）", similarity, threshold)
+        var text = String(format: L10n.text("話者類似度 %.3f（しきい値 %.3f）", language: language), similarity, threshold)
         if let overall {
-            text += String(format: " / 発話全体 %.3f", overall)
+            text += String(format: L10n.text(" / 発話全体 %.3f", language: language), overall)
         }
         if rawWindows != nil {
-            let values = windows.map { String(format: "%.2f秒: %.3f", $0.seconds, $0.similarity) }
-            text += "\n区間別: " + values.joined(separator: "、")
+            let values = windows.map { String(format: L10n.text("%.2f秒: %.3f", language: language), $0.seconds, $0.similarity) }
+            text += L10n.text("\n区間別: ", language: language) + values.joined(separator: (language ?? L10n.language) == .japanese ? "、" : ", ")
         }
         return text
     }

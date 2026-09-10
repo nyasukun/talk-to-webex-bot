@@ -8,22 +8,24 @@ import RelayCore
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
         NSApp.applicationIconImage = NSImage(contentsOfFile: "Resources/AppIcon.icns")
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ui")
+        let language: AppLanguage = CommandLine.arguments.contains("--english") ? .english : .japanese
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(language == .english ? ".build/ui/en" : ".build/ui")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let model = AppModel(preview: true, openPortal: { _ in true })
+        model.changeLanguage(to: language)
         model.authenticationSucceeded()
-        model.settings.roomTitle = "アシスタント"
+        model.settings.roomTitle = language == .english ? "Assistant" : "アシスタント"
         model.settings.roomID = "sample-room"
         model.settings.pythonPath = "/usr/bin/true"
         model.settings.asrModelPath = root.path
-        model.rooms = (1...5).map { Room(id: "sample-\($0)", title: "アシスタント \($0)", lastActivity: "2026-01-01T09:00:00Z") }
-        model.roomSearchStatus = "5件 · 最近のやりとり順"
+        model.rooms = (1...5).map { Room(id: "sample-\($0)", title: "\(model.settings.roomTitle) \($0)", lastActivity: "2026-01-01T09:00:00Z") }
+        model.roomSearchStatus = language == .english ? "5 results · Recent activity first" : "5件 · 最近のやりとり順"
         model.logs.record(.launched)
         model.logs.record(.replyProgress, category: .webex, metrics: [.polls: 15, .updates: 1])
         model.logs.record(.speechCompleted, category: .speech)
         try await render(IssueReportView(draft: IssueReport.draft(settings: model.settings, phase: model.phase, permissions: model.permissionSnapshot, entries: model.logs.entries)), name: "issue-report", size: NSSize(width: 748, height: 688), root: root)
         try await render(RelaySidebarView(model: model, selection: .constant(.home)), name: "sidebar", size: NSSize(width: 232, height: 780), root: root)
-        for section in [AppSection.home, .webex, .input, .output, .content, .permissions, .logs] {
+        for section in [AppSection.home, .webex, .input, .output, .content, .permissions, .advanced, .logs] {
             try await render(ContentView(model: model, selection: section), name: section.id, size: NSSize(width: 1080, height: 780), root: root)
         }
         try await render(ContentView(model: model, selection: .home), name: "home-dark", size: NSSize(width: 1080, height: 780), root: root, dark: true)
@@ -53,6 +55,7 @@ import RelayCore
         let thread = AppModel.Draft(body: threadBody, screen: nil, settings: settings, thread: target)
         try await render(DraftView(model: model, draft: thread), name: "draft-thread", size: NSSize(width: 762, height: 702), root: root)
         let unconfigured = AppModel(preview: true, openPortal: { _ in true })
+        unconfigured.changeLanguage(to: language)
         try await render(ContentView(model: unconfigured), name: "home-setup", size: NSSize(width: 880, height: 650), root: root)
         for (name, state) in [("idle", RelayIndicator.idle), ("receiving", .receiving), ("sent", .sent)] {
             let image = StatusIcon.image(for: state)
@@ -62,7 +65,7 @@ import RelayCore
         print("Rendered generic UI previews in .build/ui")
     }
     @MainActor static func render<V: View>(_ view: V, name: String, size: NSSize, root: URL, dark: Bool = false) async throws {
-        let hosting = NSHostingView(rootView: view.environment(\.locale, Locale(identifier: "ja_JP")).background(Color(nsColor: .windowBackgroundColor)))
+        let hosting = NSHostingView(rootView: view.environment(\.locale, L10n.language.locale).background(Color(nsColor: .windowBackgroundColor)))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = hosting

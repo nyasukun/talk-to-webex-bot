@@ -5,18 +5,18 @@ struct PermissionSettingsView: View {
     @ObservedObject var model: AppModel
     var body: some View {
         Form {
-            SettingsIntro(section: .permissions, description: "使い始める前に、このMacのアクセス権限を確認します。")
+            SettingsIntro(section: .permissions, description: L10n.text("使い始める前に、このMacのアクセス権限を確認します。"))
             Section {
-                LabeledContent("マイク", value: model.permissionSnapshot.microphone.rawValue)
-                Button("マイクの許可を設定") { Task { await model.configureMicrophonePermission() } }
+                LabeledContent(L10n.text("マイク"), value: model.permissionSnapshot.microphone.title)
+                Button(L10n.text("マイクの許可を設定")) { Task { await model.configureMicrophonePermission() } }
                     .disabled(!model.canConfigure || model.permissionSnapshot.microphone == .allowed)
-            } footer: { Text("合言葉・指示の入力と、参照音声の録音に使います。") }
+            } footer: { Text(L10n.text("合言葉・指示の入力と、参照音声の録音に使います。")) }
             Section {
-                LabeledContent("画面収録", value: model.permissionSnapshot.screen ? "許可済み" : model.settings.includeScreen ? "未許可" : "不要 · スクショはオフ")
-                Button("画面収録の許可を設定") { model.requestScreenPermission() }
+                LabeledContent(L10n.text("画面収録"), value: model.permissionSnapshot.screen ? L10n.text("許可済み") : model.settings.includeScreen ? L10n.text("未許可") : L10n.text("不要 · スクショはオフ"))
+                Button(L10n.text("画面収録の許可を設定")) { model.requestScreenPermission() }
                     .disabled(!model.canConfigure || !model.settings.includeScreen || model.permissionSnapshot.screen)
-            } footer: { Text("スクショ・OCRを使う場合に必要です。macOSの設定を変更したら、アプリを終了して開き直してください。") }
-            Section { Button("権限を再確認", systemImage: "arrow.clockwise") { model.refreshPermissions() } }
+            } footer: { Text(L10n.text("スクショ・OCRを使う場合に必要です。macOSの設定を変更したら、アプリを終了して開き直してください。")) }
+            Section { Button(L10n.text("権限を再確認"), systemImage: "arrow.clockwise") { model.refreshPermissions() } }
         }.formStyle(.grouped)
     }
 }

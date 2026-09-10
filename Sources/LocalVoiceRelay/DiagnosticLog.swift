@@ -6,6 +6,7 @@ enum LogLevel: String, Codable, CaseIterable {
     case info = "情報"
     case warning = "注意"
     case error = "エラー"
+    var title: String { L10n.key(rawValue) }
 }
 enum LogCategory: String, Codable, CaseIterable {
     case app = "アプリ"
@@ -13,6 +14,7 @@ enum LogCategory: String, Codable, CaseIterable {
     case webex = "Webex"
     case speech = "読み上げ"
     case permissions = "権限"
+    var title: String { L10n.key(rawValue) }
 }
 enum LogEvent: String, Codable {
     case launched, settingsSaved, stopped, microphoneStarted, microphoneTest, recognitionAccepted, recognitionRejected
@@ -25,49 +27,49 @@ enum LogEvent: String, Codable {
     case screenOmitted, speechSubdivided, speechLineReady, speechBufferWait
     var message: String {
         switch self {
-        case .launched: return "アプリを起動しました"
-        case .settingsSaved: return "設定を保存しました"
-        case .stopped: return "停止してマイクと音声モデルを解放しました"
-        case .microphoneStarted: return "マイク入力を開始しました"
-        case .microphoneTest: return "送信しないマイクテストを完了しました"
-        case .microphoneSampled: return "マイクテストの録音を終了しました"
-        case .recognitionAccepted: return "音声を認識しました"
-        case .recognitionRejected: return "認識の信頼度または音声区間が不足しています"
-        case .wakeDetected: return "合言葉を検出しました"
-        case .speakerMeasured: return "話者類似度を計測しました"
-        case .screenCaptured: return "前面ウィンドウの画像とOCRを取得しました"
-        case .screenOmitted: return "対象画面を取得できないため、画像とOCRを省いて音声の指示だけで続行します"
-        case .permissionsChecked: return "必要な権限を確認しました"
-        case .environmentReady: return "ローカル音声環境の診断が完了しました"
-        case .tokenValid: return "Webex認証は有効です"
-        case .tokenExpired: return "Webex認証が無効です。更新を案内しました"
-        case .tokenAccessRequired: return "保存済みトークンを読み込めませんでした。Webex設定を確認してください"
-        case .tokenSaved: return "新しいトークンを検証し、キーチェーンに保存しました"
-        case .browserOpened: return "既定のブラウザでトークン取得ページを開きました"
-        case .browserFailed: return "取得ページを開けませんでした。認証画面から再度開いてください"
-        case .roomsLoaded: return "最近のDMを取得しました"
-        case .sendStarted: return "Webexへの送信処理を開始しました"
-        case .sendCompleted: return "Webexへの送信が完了しました"
-        case .sendAmbiguous: return "送信結果が不明です。再送せずWebexで確認してください"
-        case .replyProgress: return "返信の新着と同一IDの更新を確認しました"
-        case .replyTimeout: return "返信待ちを終了し、次の合言葉の待受へ戻ります。送信は繰り返しません"
-        case .utteranceDiscarded: return "25秒に達した音声区間を破棄しました。常時待受は継続します"
-        case .inputBacklogDiscarded: return "処理が追いつかない音声を破棄しました。常時待受は継続します"
-        case .commandWaitExpired: return "指示の受付を区切りました。次の合言葉を待ちます"
-        case .rateLimited: return "API制限の解除を待ちます"
-        case .networkFailure: return "通信に失敗しました"
-        case .speechWarming: return "音声モデルと参照音声を準備しています"
-        case .speechReady: return "音声モデルの準備が完了しました"
-        case .speechStarted: return "読み上げの再生を開始しました"
-        case .speechCompleted: return "読み上げが完了しました"
-        case .speechSubdivided: return "未再生の長い音声区間をさらに分割して生成しました"
-        case .speechLineReady: return "次の行の音声を生成して再生待ちに追加しました"
-        case .speechBufferWait: return "先行音声が尽きたため次の行の生成を待ちました"
-        case .sonarFailed: return "ソナー音を再生できませんでした"
-        case .operationFailed: return "処理に失敗しました。ホームの案内を確認してください"
-        case .inputInterrupted: return "入力デバイスの変更または音声フレームの途絶を検出しました"
-        case .inputRecovered: return "マイクを再接続しました。途中の発話は破棄しました"
-        case .inputRecoveryFailed: return "マイクの再接続が続けて失敗しました。入力デバイスを確認してください"
+        case .launched: return L10n.text("アプリを起動しました")
+        case .settingsSaved: return L10n.text("設定を保存しました")
+        case .stopped: return L10n.text("停止してマイクと音声モデルを解放しました")
+        case .microphoneStarted: return L10n.text("マイク入力を開始しました")
+        case .microphoneTest: return L10n.text("送信しないマイクテストを完了しました")
+        case .microphoneSampled: return L10n.text("マイクテストの録音を終了しました")
+        case .recognitionAccepted: return L10n.text("音声を認識しました")
+        case .recognitionRejected: return L10n.text("認識の信頼度または音声区間が不足しています")
+        case .wakeDetected: return L10n.text("合言葉を検出しました")
+        case .speakerMeasured: return L10n.text("話者類似度を計測しました")
+        case .screenCaptured: return L10n.text("前面ウィンドウの画像とOCRを取得しました")
+        case .screenOmitted: return L10n.text("対象画面を取得できないため、画像とOCRを省いて音声の指示だけで続行します")
+        case .permissionsChecked: return L10n.text("必要な権限を確認しました")
+        case .environmentReady: return L10n.text("ローカル音声環境の診断が完了しました")
+        case .tokenValid: return L10n.text("Webex認証は有効です")
+        case .tokenExpired: return L10n.text("Webex認証が無効です。更新を案内しました")
+        case .tokenAccessRequired: return L10n.text("保存済みトークンを読み込めませんでした。Webex設定を確認してください")
+        case .tokenSaved: return L10n.text("新しいトークンを検証し、キーチェーンに保存しました")
+        case .browserOpened: return L10n.text("既定のブラウザでトークン取得ページを開きました")
+        case .browserFailed: return L10n.text("取得ページを開けませんでした。認証画面から再度開いてください")
+        case .roomsLoaded: return L10n.text("最近のDMを取得しました")
+        case .sendStarted: return L10n.text("Webexへの送信処理を開始しました")
+        case .sendCompleted: return L10n.text("Webexへの送信が完了しました")
+        case .sendAmbiguous: return L10n.text("送信結果が不明です。再送せずWebexで確認してください")
+        case .replyProgress: return L10n.text("返信の新着と同一IDの更新を確認しました")
+        case .replyTimeout: return L10n.text("返信待ちを終了し、次の合言葉の待受へ戻ります。送信は繰り返しません")
+        case .utteranceDiscarded: return L10n.text("25秒に達した音声区間を破棄しました。常時待受は継続します")
+        case .inputBacklogDiscarded: return L10n.text("処理が追いつかない音声を破棄しました。常時待受は継続します")
+        case .commandWaitExpired: return L10n.text("指示の受付を区切りました。次の合言葉を待ちます")
+        case .rateLimited: return L10n.text("API制限の解除を待ちます")
+        case .networkFailure: return L10n.text("通信に失敗しました")
+        case .speechWarming: return L10n.text("音声モデルと参照音声を準備しています")
+        case .speechReady: return L10n.text("音声モデルの準備が完了しました")
+        case .speechStarted: return L10n.text("読み上げの再生を開始しました")
+        case .speechCompleted: return L10n.text("読み上げが完了しました")
+        case .speechSubdivided: return L10n.text("未再生の長い音声区間をさらに分割して生成しました")
+        case .speechLineReady: return L10n.text("次の行の音声を生成して再生待ちに追加しました")
+        case .speechBufferWait: return L10n.text("先行音声が尽きたため次の行の生成を待ちました")
+        case .sonarFailed: return L10n.text("ソナー音を再生できませんでした")
+        case .operationFailed: return L10n.text("処理に失敗しました。ホームの案内を確認してください")
+        case .inputInterrupted: return L10n.text("入力デバイスの変更または音声フレームの途絶を検出しました")
+        case .inputRecovered: return L10n.text("マイクを再接続しました。途中の発話は破棄しました")
+        case .inputRecoveryFailed: return L10n.text("マイクの再接続が続けて失敗しました。入力デバイスを確認してください")
         }
     }
 }
@@ -86,7 +88,7 @@ struct LogEntry: Identifiable, Codable {
     let level: LogLevel
     let event: LogEvent
     let metrics: [String: Double]
-    var details: String { metrics.sorted { $0.key < $1.key }.map { "\($0.key): \(String(format: "%.3g", $0.value))" }.joined(separator: "  ·  ") }
+    var details: String { metrics.sorted { $0.key < $1.key }.map { "\(L10n.key($0.key)): \(String(format: "%.3g", $0.value))" }.joined(separator: "  ·  ") }
 }
 
 /// Persist only known events and numeric measurements; no free text, payloads, paths or credentials.
@@ -129,7 +131,7 @@ struct LogEntry: Identifiable, Codable {
         persist()
     }
     func text(_ entries: [LogEntry]) -> String {
-        entries.map { "\($0.date.formatted(.iso8601)) [\($0.level.rawValue)] [\($0.category.rawValue)] \($0.event.message) \($0.details)" }.joined(separator: "\n")
+        entries.map { "\($0.date.formatted(.iso8601)) [\($0.level.title)] [\($0.category.title)] \($0.event.message) \($0.details)" }.joined(separator: "\n")
     }
     private func persist() {
         guard let file else { return }

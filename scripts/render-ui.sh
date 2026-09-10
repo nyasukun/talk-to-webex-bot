@@ -10,4 +10,4 @@ for source in Sources/LocalVoiceRelay/*.swift Sources/LocalVoiceRelay/Views/*.sw
     if [[ "$source" != */LocalVoiceRelayApp.swift ]]; then sources+=("$source"); fi
 done
 swiftc -parse-as-library -I "$binary_dir/Modules" "${sources[@]}" "$binary_dir"/RelayCore.build/*.o scripts/render-ui.swift -o .build/render-ui
-/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)' .build/render-ui
+/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network*)' .build/render-ui "$@"

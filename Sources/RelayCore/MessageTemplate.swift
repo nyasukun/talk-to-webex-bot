@@ -1,6 +1,44 @@
 import Foundation
 
 public enum MessageTemplate {
+    public static let englishSpeechInstructions = """
+    Your replies will be read aloud by a speech model. Reply in English using short sentences, one sentence per line.
+    Express symbols, formatting, and numbers in natural spoken English so their meaning is clear when read aloud.
+    """
+
+    public static func defaultValue(for language: AppLanguage) -> String {
+        guard language == .english else { return defaultValue }
+        return """
+        {{#screen}}The attachment is a screenshot of the user's current window.
+        Here is the OCR text from the screenshot:
+        ```
+        {{ocr}}
+        ```
+
+        {{/screen}}The user's spoken request is:
+        ```
+        {{transcript}}
+        ```
+
+        Follow the user's spoken instructions using the context above. Respond as if you are having a conversation with the user.
+        \(englishSpeechInstructions)
+        """
+    }
+
+    public static func defaultReplyValue(for language: AppLanguage) -> String {
+        guard language == .english else { return defaultReplyValue }
+        return """
+        This is the user's follow-up to the previous bot reply in the same thread.
+        The user's spoken reply is:
+        ```
+        {{transcript}}
+        ```
+
+        Continue the previous topic using the conversation context and this reply. Address any additions, corrections, or further instructions conversationally.
+        \(englishSpeechInstructions)
+        """
+    }
+
     public static let numberInstructions = "二桁以上の数字は、桁を一つずつ読ませず、意味に合った読みをひらがなで表現してください。全角数字も同様です。例：13時・１３時は「じゅうさんじ」、25分は「にじゅうごふん」、100は「ひゃく」と記載してください。"
     public static let speechInstructions = """
     あなたの返信は音声生成モデルで読み上げられます。日本語で返答を生成し、英語はその読みをカタカナで記載ください。また、短い一文として、改行して返信してください。
@@ -36,7 +74,7 @@ public enum MessageTemplate {
     // Render tokens once: user text containing token syntax never becomes template code.
     public static func render(_ template: String, transcript: String, ocr: String?, screen: Bool) throws -> String {
         guard template.contains("{{transcript}}") else {
-            throw RelayError.message("テンプレートに {{transcript}} が必要です。")
+            throw RelayError.message(L10n.text("テンプレートに {{transcript}} が必要です。"))
         }
         var output = "", rest = template[...], inScreen = false, renderedTranscript = false
         while !rest.isEmpty {
@@ -46,15 +84,15 @@ public enum MessageTemplate {
             }
             if !inScreen || screen { output += rest[..<open.lowerBound] }
             guard let close = rest[open.upperBound...].range(of: "}}") else {
-                throw RelayError.message("テンプレートの括弧が閉じていません。")
+                throw RelayError.message(L10n.text("テンプレートの括弧が閉じていません。"))
             }
             let token = String(rest[open.upperBound..<close.lowerBound])
             switch token {
             case "#screen":
-                guard !inScreen else { throw RelayError.message("screen条件は入れ子にできません。") }
+                guard !inScreen else { throw RelayError.message(L10n.text("screen条件は入れ子にできません。")) }
                 inScreen = true
             case "/screen":
-                guard inScreen else { throw RelayError.message("screen条件の開始がありません。") }
+                guard inScreen else { throw RelayError.message(L10n.text("screen条件の開始がありません。")) }
                 inScreen = false
             case "transcript":
                 if !inScreen || screen {
@@ -62,16 +100,16 @@ public enum MessageTemplate {
                     renderedTranscript = true
                 }
             case "ocr": if screen { output += ocr ?? "" }
-            default: throw RelayError.message("未対応のテンプレート変数です: \(token)")
+            default: throw RelayError.message(L10n.text("未対応のテンプレート変数です: \(token)"))
             }
             rest = rest[close.upperBound...]
         }
-        guard !inScreen else { throw RelayError.message("screen条件が閉じていません。") }
+        guard !inScreen else { throw RelayError.message(L10n.text("screen条件が閉じていません。")) }
         guard renderedTranscript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw RelayError.message("送信する音声文字起こしが空です。")
+            throw RelayError.message(L10n.text("送信する音声文字起こしが空です。"))
         }
         guard output.utf8.count <= 7000 else {
-            throw RelayError.message("メッセージが長すぎます（上限7,000 UTF-8バイト）。発話・OCR・テンプレートを短くしてください。送信はしていません。")
+            throw RelayError.message(L10n.text("メッセージが長すぎます（上限7,000 UTF-8バイト）。発話・OCR・テンプレートを短くしてください。送信はしていません。"))
         }
         return output
     }
@@ -107,7 +145,7 @@ public enum WakeMatcher {
     }
     private static func canonical(_ text: String) -> String {
         // Only normalize a common leading acknowledgment; retain arbitrary user phrase text.
-        for prefix in ["おっけー", "おっけい", "おーけー", "おーけい", "ok"] where text.hasPrefix(prefix) {
+        for prefix in ["おっけー", "おっけい", "おーけー", "おーけい", "okay", "ok"] where text.hasPrefix(prefix) {
             return "おっけー" + text.dropFirst(prefix.count)
         }
         return text

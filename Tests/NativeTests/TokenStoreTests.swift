@@ -1,3 +1,4 @@
+import RelayCore
 import Testing
 import Foundation
 import Security
@@ -30,7 +31,7 @@ private final class KeychainCalls: @unchecked Sendable {
             calls.add("read"); return (errSecUserCanceled, nil)
         }, update: { _, _ in calls.add("update"); return errSecSuccess }, add: { _ in calls.add("add"); return errSecSuccess })
         do { _ = try await TokenStore.authorize(using: backend); Issue.record("Expected cancellation") }
-        catch { #expect(error.localizedDescription.contains("キャンセル")) }
+        catch { #expect([L10n.text("キーチェーンの読み込みをキャンセルしました。自動では再試行しません。", language: .japanese), L10n.text("キーチェーンの読み込みをキャンセルしました。自動では再試行しません。", language: .english)].contains(error.localizedDescription)) }
         #expect(calls.values == ["read"])
     }
 
@@ -65,7 +66,7 @@ private final class KeychainCalls: @unchecked Sendable {
                 let failure = error as? TokenReadError
                 #expect(failure?.status == errSecAuthFailed)
                 #expect(failure?.interactive == interactive)
-                #expect(error.localizedDescription.contains(interactive ? "ロック状態" : "自動では"))
+                #expect(error.localizedDescription.contains(interactive ? "ロック状態" : "自動では") || error.localizedDescription.contains(interactive ? "locked" : "automatically"))
             }
         }
     }

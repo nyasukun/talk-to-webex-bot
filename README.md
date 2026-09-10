@@ -1,6 +1,6 @@
 # Talk to Webex bot
 
-macOSで合言葉を受け付け、日本語の発話をローカルで文字起こしして、選択したWebex DMへ送るアプリです。必要な場合だけ前面ウィンドウの画像とVision OCRを添付し、相手の返信をローカル音声で読み上げます。
+macOSで合言葉を受け付け、日本語・英語の発話をローカルで文字起こしして、選択したWebex DMへ送るアプリです。必要な場合だけ前面ウィンドウの画像とVision OCRを添付し、相手の返信をローカル音声で読み上げます。
 
 **ビルド・自動テスト・オフライン推論に加え、ユーザ操作による音声入力・本人照合・画像/OCR付きWebex実送信・同一IDの返信更新・本人参照音声での返信読み上げ・再ビルド後の権限保持を確認しました。実環境の音楽・雑音・別話者への誤反応率と長時間常駐は継続検証が必要です。** 検証範囲は[検証記録](docs/validation.md)、実施方法は[E2E手順](docs/e2e.md)を参照してください。
 
@@ -11,6 +11,45 @@ macOSで合言葉を受け付け、日本語の発話をローカルで文字起
 - Python 3.12とuv。Homebrew利用時は `brew install uv python@3.12`。
 - Webex個人アクセストークン、送信可能なDM。トークンはアプリ内のSecureFieldへ入力します。
 - 初回取得用のインターネット接続と数GB以上の空き容量。
+
+## Install with the Codex app (English)
+
+Assuming the Codex app and Homebrew are already installed:
+
+1. Open Terminal and install GitHub CLI:
+
+   ```bash
+   brew install gh
+   gh auth login
+   ```
+
+   Follow the browser sign-in flow for GitHub.
+
+2. Clone this repository:
+
+   ```bash
+   mkdir -p ~/work
+   cd ~/work
+   gh repo clone https://github.com/nyasukun/talk-to-webex-bot.git
+   ```
+
+   The clone is saved in `~/work/talk-to-webex-bot`. See the [GitHub CLI clone documentation](https://cli.github.com/manual/gh_repo_clone).
+
+3. Open the Codex app, add or open `~/work/talk-to-webex-bot` as a local project, and start a task in that folder. Use the local checkout for installation. See the [official desktop app guide](https://learn.chatgpt.com/docs/app).
+
+4. Send this prompt in the task:
+
+   ```text
+   Use $talk-to-webex-bot-support to install and launch Talk to Webex bot
+   on this Mac. Read the repository instructions, check prerequisites,
+   install any missing dependencies, download the speech recognition model,
+   and build the app using the repository's setup scripts.
+   Start with the Mac system voice. Explain any macOS permission or sign-in
+   steps I need to complete. Guide me in English through entering my Webex
+   token in the app, choosing a DM, and testing English speech input and output.
+   ```
+
+   To also set up voice cloning, add: `Include Qwen3-TTS voice cloning and help me record reference audio and enter its exact transcript.`
 
 ## セットアップと起動
 
@@ -39,6 +78,7 @@ python3 scripts/setup-signing.py # 初回のみ: ローカル署名証明書を�
 scripts/build.sh                 # ネットワーク不要のビルド
 scripts/test.sh                  # ネットワーク不要のロジック検証
 scripts/smoke-local.sh --voice    # 配置済みモデルの実推論。マイクは使わない
+scripts/smoke-local.sh --language en --voice # 英語のSTT/TTSを合成音声で検証
 ```
 
 Python依存関係は `worker/uv.lock`、モデルのリビジョンは `scripts/models.lock.json` で固定しています。モデル取得時もTLS証明書を検証します。CAの問題がある環境ではPythonの信頼ストアを正しく設定し、証明書検証を無効化しないでください。
@@ -54,6 +94,10 @@ Python依存関係は `worker/uv.lock`、モデルのリビジョンは `scripts
 アドホック署名は `SIGNING_IDENTITY=-` で明示的に選べますが、再ビルドで識別条件が変わり、許可の再登録が必要になります。仕組みは[Appleの署名要件資料](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements)、ローカル証明書は[Appleのコード署名資料](https://developer.apple.com/library/archive/technotes/tn2206/_index.html)を参照してください。
 
 ## アプリ設定
+
+初回はmacOSの優先言語が日本語なら日本語、それ以外なら英語になります。「音声入力 / Voice Input」の「Language / 言語」で変更できます。切り替えるとUI・Whisperの認識言語・Mac標準音声またはQwenの読み上げ言語が一緒に変わり、通常と返信用の合言葉・両方の送信テンプレートをその言語の初期値へ戻します。英語の合言葉は `Okay, assistant` と `Okay, reply` です。標準音声の個別選択も自動選択へ戻り、初期の途中表示フレーズだけは言語に合わせます。変更は「変更を保存 / Save Changes」で保存し、「変更を取り消す / Discard Changes」で保存済みの言語と編集内容に戻せます。待受・録音・処理中は言語を変更できません。
+
+言語設定がない旧版の設定は、初回読み込み時に上記の規則で移行します。日本語環境では既存の編集内容を保持し、日本語以外の環境では英語への言語切り替えとして合言葉とテンプレートを初期化します。Webex認証・宛先・モデルの保存先・参照音声とその書き起こしは保持します。英語でも同じWhisper・Qwenモデルを使うため、言語変更だけで追加モデルを取得する必要はありません。Mac標準音声は選択言語の音声を事前にmacOSで取得してください。macOS自身が表示する権限ダイアログはOS側の言語設定に従います。
 
 最初にサイドバーの「権限」でマイクと、スクショ有効時の画面収録を確認してください。起動時に不足をエラー表示し、必要な権限がない間は待受を開始できません。「許可を設定」はここで明示的に操作し、設定後に「再確認」、画面収録を変更した場合はアプリを再起動します。録音・画面取得の処理から権限要求は行いません。
 
@@ -77,7 +121,7 @@ Macへログインし、認証・マイク権限を確認して待受を開始�
 
 ## 通信・保存・権限
 
-アプリがAPIとしてHTTP通信するのは `https://webexapis.com/v1/` のみです。URLのホスト・スキーム・ポート・認証部分を検査し、リダイレクトは同一ホストでも追いません。認証更新の案内では、別途ユーザの既定ブラウザでWebexの公式取得ページを開きます。不具合報告では、ユーザの操作でGitHubの報告フォームを開きます。URLには本文やログを含めません。Python workerは必要な環境変数だけを引き継ぎ、認証情報やPythonの読込先を上書きする環境変数を渡しません。オフライン環境変数に加え、`sandbox-exec` のネットワーク禁止下で動かします。モデルの不足を検出しても取得スクリプトを自動実行しません。Mac標準読み上げもネットワーク禁止の子プロセスで実行し、未取得の日本語音声はシステム設定で事前に取得します。
+アプリがAPIとしてHTTP通信するのは `https://webexapis.com/v1/` のみです。URLのホスト・スキーム・ポート・認証部分を検査し、リダイレクトは同一ホストでも追いません。認証更新の案内では、別途ユーザの既定ブラウザでWebexの公式取得ページを開きます。不具合報告では、ユーザの操作でGitHubの報告フォームを開きます。URLには本文やログを含めません。Python workerは必要な環境変数だけを引き継ぎ、認証情報やPythonの読込先を上書きする環境変数を渡しません。オフライン環境変数に加え、`sandbox-exec` のネットワーク禁止下で動かします。モデルの不足を検出しても取得スクリプトを自動実行しません。Mac標準読み上げもネットワーク禁止の子プロセスで実行し、未取得の日本語・英語音声はシステム設定で事前に取得します。
 
 - トークン: このMacのキーチェーンに保存し、同じ署名のアプリにアクセスを許可します。読み出した値は起動中のメモリで保持します。チャット、ログ、設定JSONに出力しません。
 - 個人設定: アプリ用フォルダ内の `settings.json`、権限0600。フォルダは0700。
@@ -117,7 +161,7 @@ Macの設定のように、サイドバーから項目を選びます。ホー�
 
 imagegenで生成した[アイコン](Resources/AppIcon.png)をDock・Finder・サイドバーに使用します。生成プロンプトは[アイコンの記録](Resources/AppIcon.md)に残しています。変更時は `scripts/build-icon.sh` でICNSを再生成し、目視確認後に `scripts/audit-public.py` の承認済みハッシュを更新してください。通常のビルドでは同梱ICNSを使います。
 
-`scripts/test.sh` でSwift・worker・報告スクリプトのテスト、`scripts/render-ui.sh` でサンプルデータによる画面描画、`python3 scripts/audit-public.py` で公開前監査を実行します。コミット直前には `python3 scripts/audit-public.py --staged` でGitのステージにある内容を検査できます。CIはmainへのpushとPull Requestで同じテスト・監査・未署名のパッケージ作成を実行します。モデルや認証情報はCIに渡しません。
+`scripts/test.sh` でSwift・worker・報告スクリプトのテスト、`scripts/render-ui.sh`（英語は `scripts/render-ui.sh --english`）でサンプルデータによる画面描画、`python3 scripts/audit-public.py` で公開前監査を実行します。コミット直前には `python3 scripts/audit-public.py --staged` でGitのステージにある内容を検査できます。CIはmainへのpushとPull Requestで同じテスト・監査・未署名のパッケージ作成を実行します。モデルや認証情報はCIに渡しません。
 
 ## Webex認証と送信エラー
 
@@ -139,7 +183,7 @@ Qwenは返信待ちの間にモデルと参照音声を読み込み、無音の�
 
 ## 読み上げに適した返信形式
 
-送信テンプレートの初期値に、次の指示を含めています。以前の保存済みテンプレートには、編集内容を残して一度だけ追記します。その後は自由に変更・削除でき、削除しても再追記しません。
+日本語の送信テンプレートの初期値に、次の指示を含めています。英語では短い英文を1文ずつ改行し、数字と記号も自然な英語で読めるように指示します。以前の保存済みテンプレートには、編集内容を残して一度だけ追記します。その後は自由に変更・削除でき、削除しても再追記しません。
 
 > あなたの返信は音声生成モデルで読み上げられます。日本語で返答を生成し、英語はその読みをカタカナで記載ください。また、短い一文として、改行して返信してください。
 > 記号や装飾も、読み上げて意味が伝わる日本語に言い換えてください。

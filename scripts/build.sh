@@ -42,6 +42,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/worker"
 cp "$binary_dir/LocalVoiceRelay" "$app/Contents/MacOS/LocalVoiceRelay"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
+cp -R Resources/en.lproj Resources/ja.lproj "$app/Contents/Resources/"
 cp worker/relay_*.py "$app/Contents/Resources/worker/"
 if [[ "$prepare_only" == false ]]; then python3 scripts/sign-app.py "$app"; fi
 require_stopped

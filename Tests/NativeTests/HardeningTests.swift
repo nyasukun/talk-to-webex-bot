@@ -96,9 +96,9 @@ struct HardeningTests {
                                       permissions: PermissionSnapshot(microphone: .allowed, screen: false), entries: [entry])
         #expect(!report.contains("synthetic-private"))
         #expect(report.contains(LogEvent.sendAmbiguous.message))
-        #expect(report.contains("件数: 2"))
+        #expect(report.contains(L10n.key("件数") + ": 2"))
         #expect(!report.contains("inf"))
-        #expect(IssueReport.version("sensitive-build-text") == "開発版")
+        #expect(IssueReport.version("sensitive-build-text") == L10n.text("開発版"))
     }
 
     @MainActor @Test func issueDraftNamesTheVoiceModelSizeButNeverItsFolder() {
@@ -109,7 +109,7 @@ struct HardeningTests {
             settings.ttsModelPath = path
             let report = IssueReport.draft(settings: settings, phase: .stopped,
                                           permissions: PermissionSnapshot(microphone: .allowed, screen: false), entries: [])
-            #expect(report.contains("Qwen（ローカル・\(expected)）"))
+            #expect(report.contains(L10n.text("Qwen（ローカル・\(L10n.key(expected))）")))
             #expect(!report.contains("synthetic-private"))
         }
     }

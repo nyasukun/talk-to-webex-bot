@@ -24,6 +24,7 @@ class Worker:
         self.encoder = None
         self.tts = None
         self.tts_path = None
+        self.tts_language = "ja"
         self.warm_key = None
         self.reference_key = None
         self.reference_signal = None
@@ -120,7 +121,15 @@ class Worker:
             audio = np.concatenate([audio[groups[i][0]["start"]:groups[i][-1]["end"]] for i in selected])
         return audio, metrics
 
+    @staticmethod
+    def language(request):
+        language = request.get("language", "ja")
+        if language not in ("ja", "en"):
+            raise WorkerRequestError("Unsupported speech language. Use ja or en.")
+        return language
+
     def transcribe(self, request):
+        language = self.language(request)
         import numpy as np
         import mlx_whisper
         import noisereduce as nr
@@ -144,7 +153,7 @@ class Worker:
         # Band filtering + gentle spectral reduction complements AVAudioEngine voice processing.
         filtered = sosfilt(butter(3, [80, 7600], btype="bandpass", fs=ASR_SAMPLE_RATE, output="sos"), audio).astype(np.float32)
         cleaned = nr.reduce_noise(y=filtered, sr=ASR_SAMPLE_RATE, stationary=False, prop_decrease=0.35).astype(np.float32)
-        result = mlx_whisper.transcribe(cleaned, path_or_hf_repo=str(model), language="ja", task="transcribe",
+        result = mlx_whisper.transcribe(cleaned, path_or_hf_repo=str(model), language=language, task="transcribe",
                                         temperature=0.0, condition_on_previous_text=False, verbose=None,
                                         no_speech_threshold=0.55, logprob_threshold=-1.0,
                                         compression_ratio_threshold=2.4)
@@ -175,6 +184,7 @@ class Worker:
         return self.reference_signal
 
     def prepare_tts(self, request):
+        self.tts_language = self.language(request)
         import mlx.core as mx
         from mlx_audio.tts.utils import load_model
         model_path = str(local_path(request["model"], directory=True))
@@ -194,7 +204,7 @@ class Worker:
         return mx.array(audio), ref_text
 
     def generate_speech(self, text, reference, ref_text, max_tokens):
-        return self.tts.generate(text=text, ref_audio=reference, ref_text=ref_text, lang_code="Japanese",
+        return self.tts.generate(text=text, ref_audio=reference, ref_text=ref_text, lang_code="English" if self.tts_language == "en" else "Japanese",
                                  verbose=False, stream=True, streaming_interval=0.8, max_tokens=max_tokens,
                                  **SPEECH_SAMPLING)
 
@@ -202,10 +212,10 @@ class Worker:
         import time
         started = time.perf_counter()
         reference, ref_text = self.prepare_tts(request)
-        key = (self.tts_path, self.reference_key, ref_text)
+        key = (self.tts_path, self.reference_key, ref_text, self.tts_language)
         if self.warm_key != key:
             # Exercise inference and populate the model's reference-code cache. Never play or save this audio.
-            for _ in self.generate_speech("準備できました。", reference, ref_text, 32):
+            for _ in self.generate_speech("Ready." if self.tts_language == "en" else "準備できました。", reference, ref_text, 32):
                 pass
             self.warm_key = key
         return {"ready": True, "elapsed_seconds": time.perf_counter() - started}

@@ -16,7 +16,7 @@ import RelayCore
         let file = try AVAudioFile(forReading: url)
         guard file.length > 0, let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
                                                             frameCapacity: AVAudioFrameCount(file.length)) else {
-            throw RelayError.message("再生用の音声を読み込めません。")
+            throw RelayError.message(L10n.text("再生用の音声を読み込めません。"))
         }
         try file.read(into: buffer)
         return buffer
@@ -32,7 +32,7 @@ import RelayCore
             self.node = node
         }
         guard node?.outputFormat(forBus: 0) == buffer.format else {
-            throw RelayError.message("音声生成中に再生形式が変わりました。")
+            throw RelayError.message(L10n.text("音声生成中に再生形式が変わりました。"))
         }
         let run = generation
         queuedLines += 1
@@ -61,13 +61,13 @@ import RelayCore
     }
     static func playbackBuffers(_ source: AVAudioPCMBuffer) throws -> [AVAudioPCMBuffer] {
         guard source.frameLength > 0, let sourceChannels = source.floatChannelData, !source.format.isInterleaved else {
-            throw RelayError.message("再生用のPCM形式が不正です。")
+            throw RelayError.message(L10n.text("再生用のPCM形式が不正です。"))
         }
         let step = max(1, Int(source.format.sampleRate * 0.5))
         return try stride(from: 0, to: Int(source.frameLength), by: step).map { start in
             let count = min(step, Int(source.frameLength) - start)
             guard let part = AVAudioPCMBuffer(pcmFormat: source.format, frameCapacity: AVAudioFrameCount(count)),
-                  let channels = part.floatChannelData else { throw RelayError.message("再生用メモリを確保できません。") }
+                  let channels = part.floatChannelData else { throw RelayError.message(L10n.text("再生用メモリを確保できません。")) }
             part.frameLength = AVAudioFrameCount(count)
             for channel in 0..<Int(source.format.channelCount) {
                 channels[channel].update(from: sourceChannels[channel].advanced(by: start), count: count)
@@ -92,7 +92,7 @@ import RelayCore
             try Task.checkCancellation()
             guard run == generation else { throw CancellationError() }
             guard started, engine?.isRunning == true, !progress.stalled(remainingSeconds: queuedSeconds) else {
-                throw RelayError.message("音声の再生が進みません。出力デバイスを確認してください。")
+                throw RelayError.message(L10n.text("音声の再生が進みません。出力デバイスを確認してください。"))
             }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
