@@ -27,6 +27,8 @@ public enum SettingsCodec {
             if saved["replyTemplate"] as? String == "{{transcript}}" { saved["replyTemplate"] = MessageTemplate.defaultReplyValue }
             saved["replyTemplateVersion"] = 1
         }
+        // The folder switch itself needs the file system; Settings.resolveVoiceModel finishes it at load time.
+        if saved["voiceModelVersion"] == nil { saved["voiceModelVersion"] = 1 }
         let merged = try JSONSerialization.data(withJSONObject: defaults.merging(saved) { _, new in new })
         return try JSONDecoder().decode(Settings.self, from: merged)
     }

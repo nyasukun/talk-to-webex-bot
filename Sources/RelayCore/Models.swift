@@ -131,7 +131,21 @@ public struct Settings: Codable, Equatable, Sendable {
     public var referenceText = ""
     public var reduceReferenceNoise = true
     public var systemVoiceID = ""
+    public var voiceModelVersion = 2
     public init() {}
+
+    /// Picks the voice model folder. `standard` is the 1.7B model that `download-models.sh voice` installs;
+    /// `small` is the 0.6B folder of earlier builds. Saved settings from before the larger model move to it
+    /// once, on the first launch where it is installed, and any later explicit choice is kept.
+    public mutating func resolveVoiceModel(standard: String, small: String, standardExists: Bool, smallExists: Bool) {
+        if ttsModelPath.isEmpty { ttsModelPath = standardExists || !smallExists ? standard : small }
+        guard voiceModelVersion < 2 else { return }
+        if ttsModelPath == small {
+            guard standardExists else { return }
+            ttsModelPath = standard
+        }
+        voiceModelVersion = 2
+    }
 
     public func validate() throws {
         guard ["system", "qwen"].contains(ttsEngine) else { throw RelayError.message("読み上げの音声方式を選び直してください。") }

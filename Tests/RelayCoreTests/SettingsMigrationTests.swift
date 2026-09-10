@@ -59,4 +59,30 @@ struct SettingsMigrationTests {
         let data = try JSONSerialization.data(withJSONObject: ["replyTemplate": custom])
         #expect(try SettingsCodec.decode(data).replyTemplate == custom)
     }
+
+    @Test func voiceModelMovesToTheStandardFolderOnceAndKeepsLaterChoices() throws {
+        let standard = "/data/models/voice-1.7b", small = "/data/models/voice"
+        // Saved before the larger model existed: move as soon as it is installed, not before.
+        var old = try SettingsCodec.decode(Data(#"{"ttsModelPath":"/data/models/voice"}"#.utf8))
+        #expect(old.voiceModelVersion == 1)
+        old.resolveVoiceModel(standard: standard, small: small, standardExists: false, smallExists: true)
+        #expect(old.ttsModelPath == small && old.voiceModelVersion == 1)
+        old.resolveVoiceModel(standard: standard, small: small, standardExists: true, smallExists: true)
+        #expect(old.ttsModelPath == standard && old.voiceModelVersion == 2)
+        // After the move, choosing the small folder again is respected on every later launch.
+        var chosen = try SettingsCodec.decode(JSONEncoder().encode(old))
+        chosen.ttsModelPath = small
+        chosen.resolveVoiceModel(standard: standard, small: small, standardExists: true, smallExists: true)
+        #expect(chosen.ttsModelPath == small && chosen.voiceModelVersion == 2)
+        // A custom folder is never touched, and marks the migration as done.
+        var custom = try SettingsCodec.decode(Data(#"{"ttsModelPath":"/elsewhere/qwen"}"#.utf8))
+        custom.resolveVoiceModel(standard: standard, small: small, standardExists: true, smallExists: true)
+        #expect(custom.ttsModelPath == "/elsewhere/qwen" && custom.voiceModelVersion == 2)
+        // Fresh settings prefer the standard folder unless only the small one is installed.
+        for (standardExists, smallExists, expected) in [(true, true, standard), (false, false, standard), (false, true, small), (true, false, standard)] {
+            var fresh = Settings()
+            fresh.resolveVoiceModel(standard: standard, small: small, standardExists: standardExists, smallExists: smallExists)
+            #expect(fresh.ttsModelPath == expected && fresh.voiceModelVersion == 2)
+        }
+    }
 }

@@ -8,10 +8,28 @@ import RelayCore
     private var cancelled = false
     private var generation = UUID()
 
+    /// Installed Japanese voices, best quality first. Enhanced and premium variants come from System Settings.
     static var voices: [AVSpeechSynthesisVoice] {
         AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("ja") }
+            .sorted { (rank($0.quality), $0.name, $0.identifier) < (rank($1.quality), $1.name, $1.identifier) }
     }
-    static func name(_ voice: AVSpeechSynthesisVoice) -> String { voice.name }
+    /// The best installed quality of Kyoko, then of any Japanese voice.
+    static var automaticVoice: AVSpeechSynthesisVoice? { voices.first { $0.name == "Kyoko" } ?? voices.first }
+    static func rank(_ quality: AVSpeechSynthesisVoiceQuality) -> Int {
+        switch quality {
+        case .premium: return 0
+        case .enhanced: return 1
+        default: return 2
+        }
+    }
+    static func name(_ voice: AVSpeechSynthesisVoice) -> String { label(voice.name, quality: voice.quality) }
+    static func label(_ name: String, quality: AVSpeechSynthesisVoiceQuality) -> String {
+        switch quality {
+        case .premium: return "\(name)（プレミアム）"
+        case .enhanced: return "\(name)（拡張）"
+        default: return name
+        }
+    }
     func warmup(settings: Settings, worker: LocalWorker) async throws {
         guard settings.ttsEngine == "qwen" else { return }
         _ = try await worker.call(WorkerRequest.warmSpeech(settings: settings), python: settings.pythonPath)
@@ -22,21 +40,24 @@ import RelayCore
         let run = UUID()
         generation = run
         cancelled = false
+        // Both voices read the spoken form; the reply on screen keeps its Markdown.
+        let spoken = SpeechText.forSpeech(text)
         if settings.ttsEngine == "system" {
-            try await speakWithSystemVoice(text, settings: settings, onStart: onStart)
+            try await speakWithSystemVoice(spoken, settings: settings, onStart: onStart)
         } else {
-            try await speakWithQwen(text, settings: settings, worker: worker, run: run,
+            try await speakWithQwen(spoken, settings: settings, worker: worker, run: run,
                                     onSplit: onSplit, onProgress: onProgress, onStart: onStart)
         }
     }
     private func speakWithSystemVoice(_ text: String, settings: Settings, onStart: () -> Void) async throws {
-        guard let voice = Self.voices.first(where: { $0.identifier == settings.systemVoiceID }) ?? Self.voices.first(where: { $0.name == "Kyoko" }) ?? Self.voices.first else {
+        guard let voice = Self.voices.first(where: { $0.identifier == settings.systemVoiceID }) ?? Self.automaticVoice else {
             throw RelayError.message("日本語音声が未配置です。システム設定 → アクセシビリティ → 読み上げコンテンツで先に取得してください。")
         }
         let source = try PrivateStorage.temporaryFile(extension: "txt")
         defer { try? FileManager.default.removeItem(at: source) }
         try Data(text.utf8).write(to: source)
-        let process = OfflineProcess.sandboxed(["/usr/bin/say", "-v", Self.name(voice), "-f", source.path])
+        // The identifier selects the exact quality variant; the display name alone would pick the compact voice.
+        let process = OfflineProcess.sandboxed(["/usr/bin/say", "-v", voice.identifier, "-f", source.path])
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         self.process = process

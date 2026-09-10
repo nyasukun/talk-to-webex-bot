@@ -13,8 +13,9 @@ from relay_common import WorkerRequestError, local_path
 from relay_recognition import (ASR_SAMPLE_RATE, SPEAKER_MIN_SAMPLES, preferred_turns, speaker_scores_accepted,
                                speaker_window_ranges, speech_turn_spans, usable_segments, voiced_audio,
                                voiced_sample_count)
-from relay_speech import (SpeechLengthLimit, checked_sentence, clean_voice_reference, joined_speech_parts,
-                          speech_boundary, speech_lines, speech_plan, speech_token_limit)
+from relay_speech import (SPEECH_SAMPLING, SpeechLengthLimit, checked_sentence, finished_speech, install_sampling_fixes,
+                          joined_speech_parts, prepare_voice_reference, speech_boundary, speech_lines, speech_plan,
+                          speech_token_limit)
 
 
 class Worker:
@@ -170,8 +171,7 @@ class Worker:
             if rate != sample_rate:
                 divisor = gcd(rate, sample_rate)
                 audio = resample_poly(audio, sample_rate // divisor, rate // divisor)
-            cleaned = clean_voice_reference(audio, sample_rate) if reduce_noise else audio
-            self.reference_signal, self.reference_key = cleaned, key
+            self.reference_signal, self.reference_key = prepare_voice_reference(audio, sample_rate, reduce_noise), key
         return self.reference_signal
 
     def prepare_tts(self, request):
@@ -184,6 +184,7 @@ class Worker:
             raise WorkerRequestError("音声再現には参照音声と一致する文字起こしが必要です。")
         if self.tts is None or self.tts_path != model_path:
             self.tts = load_model(model_path)
+            install_sampling_fixes(self.tts)
             self.tts_path = model_path
             self.warm_key = None
         reduce_noise = request.get("reduce_reference_noise", True)
@@ -194,7 +195,8 @@ class Worker:
 
     def generate_speech(self, text, reference, ref_text, max_tokens):
         return self.tts.generate(text=text, ref_audio=reference, ref_text=ref_text, lang_code="Japanese",
-                                 verbose=False, stream=True, streaming_interval=0.8, max_tokens=max_tokens)
+                                 verbose=False, stream=True, streaming_interval=0.8, max_tokens=max_tokens,
+                                 **SPEECH_SAMPLING)
 
     def warm_speech(self, request):
         import time
@@ -236,6 +238,7 @@ class Worker:
         for index, total, unit in plan:
             with contextlib.closing(self.speech_part(unit, reference, ref_text)) as parts:
                 result = joined_speech_parts(parts)
+            result.audio = finished_speech(result.audio, result.sample_rate)
             result.line_index, result.line_count = index, total
             yield result
 

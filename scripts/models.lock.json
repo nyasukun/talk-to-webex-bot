@@ -8,6 +8,10 @@
     "revision": "49e6aa286ad60c14352c404340ded53710378a11"
   },
   "voice": {
+    "repository": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
+    "revision": "e7dd0585652209fa0d7783659aad4e8a324de11c"
+  },
+  "voice-small": {
     "repository": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit",
     "revision": "0d6bb6fe33f92d47a507e23b9148940e8366ab5b"
   }

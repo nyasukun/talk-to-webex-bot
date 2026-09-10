@@ -23,7 +23,11 @@ struct PrivateStorage {
            let decoded = try? decodeSettings(data) { settings = decoded }
         if settings.pythonPath.isEmpty { settings.pythonPath = directory.appendingPathComponent("runtime/.venv/bin/python").path }
         if settings.asrModelPath.isEmpty { settings.asrModelPath = directory.appendingPathComponent("models/whisper").path }
-        if settings.ttsModelPath.isEmpty { settings.ttsModelPath = directory.appendingPathComponent("models/voice").path }
+        let standard = directory.appendingPathComponent("models/voice-1.7b").path
+        let small = directory.appendingPathComponent("models/voice").path
+        settings.resolveVoiceModel(standard: standard, small: small,
+                                   standardExists: FileManager.default.fileExists(atPath: standard + "/config.json"),
+                                   smallExists: FileManager.default.fileExists(atPath: small + "/config.json"))
         return settings
     }
     static func decodeSettings(_ data: Data) throws -> Settings {

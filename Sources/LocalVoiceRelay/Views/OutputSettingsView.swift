@@ -17,6 +17,8 @@ struct OutputSettingsView: View {
                         Text("自動選択").tag("")
                         ForEach(SpeechOutput.voices, id: \.identifier) { Text(SpeechOutput.name($0)).tag($0.identifier) }
                     }.disabled(!model.canConfigure)
+                    Text("自動選択は取得済みの最も高品質なKyokoを使います。システム設定 → アクセシビリティ → 読み上げコンテンツで「拡張」「プレミアム」の日本語音声を取得すると、ここに表示されます。")
+                        .font(.caption).foregroundStyle(.secondary)
                 } else {
                     ReferenceSettings(model: model, kind: .voice)
                     TextSetting(title: "参照録音で実際に読んだ全文", text: $model.settings.referenceText, height: 85).disabled(!model.canConfigure)
@@ -24,7 +26,7 @@ struct OutputSettingsView: View {
                     Text("声と一緒に再現される背景音を抑えます。声の響きが気になる場合は、オフの音声と比べてください。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-            } header: { Text("読み上げる声") } footer: { Text("Qwenは10〜20秒の参照音声から声を再現します。参照本文は録音の全文と一致させてください。追加学習は行いません。") }
+            } header: { Text("読み上げる声") } footer: { Text("Qwenは10〜20秒の参照音声から声を再現します。参照本文は録音の全文と一致させてください。追加学習は行いません。参照音声はメモリ上で整えてから使います（低域の除去、ノイズ軽減、音量の統一。録音の長さは変えません）。返信のMarkdownや絵文字・URLは読み上げ用に言い換え、画面の表示は変えません。") }
             Section {
                 TextSetting(title: "試聴する文章", text: $model.speechTestText, height: 105)
                 Button("この設定で読み上げを試す", systemImage: "play.fill") { model.testSpeech() }.disabled(!model.canConfigure)

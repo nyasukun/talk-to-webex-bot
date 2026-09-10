@@ -8,7 +8,8 @@ from pathlib import Path
 MODELS = {
     "asr": ("mlx-community/whisper-large-v3-turbo", "whisper"),
     "asr-large": ("mlx-community/whisper-large-v3-mlx", "whisper-large"),
-    "voice": ("mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit", "voice"),
+    "voice": ("mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit", "voice-1.7b"),
+    "voice-small": ("mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit", "voice"),
 }
 
 

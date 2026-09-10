@@ -61,27 +61,120 @@ class WorkerTests(unittest.TestCase):
             signal = np.column_stack([np.full(48000, 0.1), np.full(48000, 0.3)])
             sf.write(path, signal, 16000, subtype='FLOAT')
             original = path.read_bytes()
-            with patch.object(worker, 'clean_voice_reference', side_effect=lambda audio, rate: audio) as clean:
+            with patch.object(worker, 'prepare_voice_reference', side_effect=lambda audio, rate, reduce_noise: audio) as prepare:
                 first = instance.cached_voice_reference(str(path), 24000)
                 second = instance.cached_voice_reference(str(path), 24000)
                 self.assertIs(first, second)
-                self.assertEqual(clean.call_count, 1)
+                self.assertEqual(prepare.call_count, 1)
+                self.assertEqual(prepare.call_args.args[1:], (24000, True))
                 self.assertEqual(len(first), 72000)
                 self.assertAlmostEqual(float(np.mean(first[100:-100])), 0.2, places=3)
                 self.assertEqual(path.read_bytes(), original)
                 stamp = path.stat()
                 os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 1_000_000))
                 instance.cached_voice_reference(str(path), 24000)
-                self.assertEqual(clean.call_count, 2)
+                self.assertEqual(prepare.call_count, 2)
                 instance.cached_voice_reference(str(path), 16000)
-                self.assertEqual(clean.call_count, 3)
+                self.assertEqual(prepare.call_count, 3)
+                # Noise reduction on and off are separate cache entries, both conditioned the same way otherwise.
                 instance.cached_voice_reference(str(path), 16000, reduce_noise=False)
-                self.assertEqual(clean.call_count, 3)
+                self.assertEqual(prepare.call_count, 4)
+                self.assertEqual(prepare.call_args.args[1:], (16000, False))
+                instance.cached_voice_reference(str(path), 16000, reduce_noise=False)
+                self.assertEqual(prepare.call_count, 4)
                 instance.cached_voice_reference(str(path), 16000, reduce_noise=True)
-                self.assertEqual(clean.call_count, 4)
+                self.assertEqual(prepare.call_count, 5)
                 sf.write(path, np.zeros(16000), 16000)
                 with self.assertRaisesRegex(ValueError, '3〜30秒'):
                     instance.cached_voice_reference(str(path), 24000)
+
+    def test_reference_conditioning_removes_offset_and_normalizes_level_without_changing_the_take(self):
+        import numpy as np
+        rate = 24000
+        t = np.arange(rate * 8) / rate
+        voiced = (t >= 1.5) & (t < 5.5)
+        # Quiet take with a DC offset: the words and the timing must survive, the offset must not.
+        speech = np.where(voiced, 0.03 * np.sin(2 * np.pi * 220 * t), 0)
+        source = np.asarray(speech + 0.02, dtype=np.float32)
+        before = source.copy()
+        prepared = relay_speech.prepare_voice_reference(source, rate, reduce_noise=False)
+        self.assertTrue(np.array_equal(source, before))
+        self.assertTrue(np.isfinite(prepared).all())
+        self.assertEqual(len(prepared), len(source))
+        levels, _ = relay_speech.frame_levels(prepared, rate)
+        active = relay_speech.active_frames(levels)
+        level_db = 20 * np.log10(np.sqrt(np.mean(levels[active] ** 2)))
+        self.assertAlmostEqual(level_db, relay_speech.REFERENCE_TARGET_RMS_DB, delta=1.0)
+        self.assertLess(abs(float(np.mean(prepared))), 0.002)
+        # The speech keeps its position, duration and content: silence around it is left in place.
+        bounds = relay_speech.speech_bounds(prepared, rate)
+        self.assertAlmostEqual(bounds[0] / rate, 1.5, delta=0.03)
+        self.assertAlmostEqual((bounds[1] - bounds[0]) / rate, 4, delta=0.05)
+        spectrum = np.abs(np.fft.rfft(prepared[bounds[0] + rate // 4:bounds[0] + rate // 4 + rate]))
+        self.assertAlmostEqual(float(np.argmax(spectrum)), 220, delta=2)
+        self.assertLessEqual(float(np.abs(prepared).max()), relay_speech.OUTPUT_PEAK_CEILING)
+        loud = np.asarray(np.where(voiced, 0.99 * np.sin(2 * np.pi * 220 * t), 0), dtype=np.float32)
+        self.assertLessEqual(float(np.abs(relay_speech.prepare_voice_reference(loud, rate, reduce_noise=False)).max()), relay_speech.OUTPUT_PEAK_CEILING + 1e-6)
+
+    def test_reference_conditioning_leaves_silence_alone_and_reduces_noise_only_when_asked(self):
+        import numpy as np
+        rate = 24000
+        t = np.arange(int(rate * 4.5)) / rate
+        speech = np.where((t >= 1) & (t < 3.5), 0.1 * np.sin(2 * np.pi * 220 * t), 0).astype(np.float32)
+        silent = relay_speech.prepare_voice_reference(np.zeros(rate * 4, dtype=np.float32), rate, reduce_noise=True)
+        self.assertEqual(len(silent), rate * 4)
+        self.assertTrue(np.all(np.abs(silent) < 1e-6))
+        with patch.object(relay_speech, 'clean_voice_reference', side_effect=lambda audio, rate: audio) as clean:
+            relay_speech.prepare_voice_reference(speech, rate, reduce_noise=True)
+            relay_speech.prepare_voice_reference(speech, rate, reduce_noise=False)
+            self.assertEqual(clean.call_count, 1)
+
+    def test_finished_segment_has_short_lead_fixed_pause_common_level_and_soft_edges(self):
+        import numpy as np
+        rate = 24000
+        t = np.arange(int(rate * 2.7)) / rate
+        voiced = (t >= 0.5) & (t < 1.5)
+        segment = np.where(voiced, 0.4 * np.sin(2 * np.pi * 220 * t), 0).astype(np.float32)
+        finished = relay_speech.finished_speech(segment, rate)
+        self.assertTrue(np.isfinite(finished).all())
+        lead = relay_speech.OUTPUT_LEADING_SECONDS
+        tail = relay_speech.OUTPUT_TRAILING_SECONDS
+        self.assertAlmostEqual(len(finished) / rate, lead + 1 + tail, delta=0.05)
+        bounds = relay_speech.speech_bounds(finished, rate)
+        self.assertLessEqual(bounds[0] / rate, lead + 0.03)
+        self.assertAlmostEqual((len(finished) - bounds[1]) / rate, tail, delta=0.03)
+        self.assertLess(float(np.abs(finished[-int(0.25 * rate):]).max()), 1e-4)
+        self.assertLess(abs(float(finished[0])), 0.01)
+        levels, _ = relay_speech.frame_levels(finished, rate)
+        level_db = 20 * np.log10(np.sqrt(np.mean(levels[relay_speech.active_frames(levels)] ** 2)))
+        self.assertAlmostEqual(level_db, relay_speech.OUTPUT_TARGET_RMS_DB, delta=1.0)
+        quiet = np.where(voiced, 0.01 * np.sin(2 * np.pi * 220 * t), 0).astype(np.float32)
+        boosted = relay_speech.finished_speech(quiet, rate)
+        # Bounded gain; the zero-phase filter may overshoot a synthetic step by a few percent.
+        self.assertLessEqual(float(np.abs(boosted).max()), float(np.abs(quiet).max()) * 10 ** (relay_speech.OUTPUT_GAIN_RANGE_DB[1] / 20) * 1.1)
+        loud = np.where(voiced, 0.99 * np.sin(2 * np.pi * 220 * t), 0).astype(np.float32)
+        self.assertLessEqual(float(np.abs(relay_speech.finished_speech(loud, rate)).max()), relay_speech.OUTPUT_PEAK_CEILING + 1e-6)
+        tiny = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+        self.assertTrue(np.array_equal(relay_speech.finished_speech(tiny, rate), tiny))
+        with self.assertRaises(ValueError):
+            relay_speech.finished_speech(np.full(rate, np.nan, dtype=np.float32), rate)
+
+    def test_sampling_fixes_window_the_history_drop_the_stop_token_exemption_and_install_once(self):
+        from unittest.mock import Mock
+        model = Mock()
+        seen = []
+        model._sample_token = lambda logits, **kwargs: seen.append(kwargs) or 'token'
+        relay_speech.install_sampling_fixes(model)
+        first = model._sample_token
+        relay_speech.install_sampling_fixes(model)
+        self.assertIs(model._sample_token, first)
+        history = list(range(200))
+        self.assertEqual(model._sample_token('logits', temperature=0.9, generated_tokens=history, eos_token_id=7, top_k=50), 'token')
+        self.assertEqual(seen[-1]['generated_tokens'], history[-relay_speech.SPEECH_REPETITION_WINDOW:])
+        self.assertNotIn('eos_token_id', seen[-1])
+        self.assertEqual(seen[-1]['top_k'], 50)
+        model._sample_token('logits', generated_tokens=None)
+        self.assertIsNone(seen[-1]['generated_tokens'])
 
     def test_flattened_paragraph_starts_with_its_first_sentence(self):
         first = '承知しました。'
@@ -323,6 +416,9 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(all(r.line_count == 2 for r in result))
         self.assertEqual([r.audio.tolist() for r in result], [[1] * 10, [2] * 10])
         self.assertEqual(model.generate.call_count, 2)
+        for call in model.generate.call_args_list:
+            self.assertEqual({key: call.kwargs[key] for key in relay_speech.SPEECH_SAMPLING}, relay_speech.SPEECH_SAMPLING)
+            self.assertEqual(call.kwargs['lang_code'], 'Japanese')
         model.speech_tokenizer.decoder.reset_streaming_state.assert_called()
 
     @unittest.skipUnless(importlib.util.find_spec('numpy'), 'Requires the local audio runtime.')

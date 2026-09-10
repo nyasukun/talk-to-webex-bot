@@ -101,6 +101,19 @@ struct HardeningTests {
         #expect(IssueReport.version("sensitive-build-text") == "開発版")
     }
 
+    @MainActor @Test func issueDraftNamesTheVoiceModelSizeButNeverItsFolder() {
+        var settings = Settings()
+        settings.ttsEngine = "qwen"
+        for (path, expected) in [("/synthetic-private-path/models/voice-1.7b", "1.7B"), ("/synthetic-private-path/models/voice", "0.6B"),
+                                 ("/synthetic-private-path/models/synthetic-private-folder", "カスタム")] {
+            settings.ttsModelPath = path
+            let report = IssueReport.draft(settings: settings, phase: .stopped,
+                                          permissions: PermissionSnapshot(microphone: .allowed, screen: false), entries: [])
+            #expect(report.contains("Qwen（ローカル・\(expected)）"))
+            #expect(!report.contains("synthetic-private"))
+        }
+    }
+
     @MainActor @Test func clearingConversationAlsoClearsThreadTargetAndIsDisabledDuringListening() {
         let model = AppModel(preview: true)
         model.transcript = "synthetic instruction"; model.reply = "synthetic reply"; model.recognizedInput = "synthetic recognition"

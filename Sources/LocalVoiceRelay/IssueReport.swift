@@ -15,7 +15,9 @@ enum IssueReport {
                       entries: [LogEntry], bundle: Bundle = .main) -> String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let onOff: (Bool) -> String = { $0 ? "オン" : "オフ" }
-        let engine = settings.ttsEngine == "qwen" ? "Qwen（ローカル）" : settings.ttsEngine == "system" ? "Mac標準" : "未選択"
+        // Only the model size is reported, never the folder path.
+        let voiceModel = ["voice-1.7b": "1.7B", "voice": "0.6B"][URL(fileURLWithPath: settings.ttsModelPath).lastPathComponent] ?? "カスタム"
+        let engine = settings.ttsEngine == "qwen" ? "Qwen（ローカル・\(voiceModel)）" : settings.ttsEngine == "system" ? "Mac標準" : "未選択"
         let metrics = Set(LogMetric.allCases.map(\.rawValue))
         let recent = entries.suffix(30).map { entry in
             let safe = LogEntry(id: entry.id, date: entry.date, category: entry.category, level: entry.level, event: entry.event,

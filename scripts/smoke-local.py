@@ -85,8 +85,11 @@ def main():
     if args.voice:
         started = time.perf_counter()
         output = work / "synthetic-reference-tts.wav"
+        # The standard 1.7B folder when installed; the small 0.6B folder of earlier setups otherwise.
+        voice_model = next((DATA / "models" / name for name in ("voice-1.7b", "voice") if (DATA / "models" / name / "config.json").is_file()), DATA / "models/voice-1.7b")
+        summary["voice_model"] = voice_model.name
         with contextlib.redirect_stdout(sys.stderr):
-            worker.synthesize({"model": str(DATA / "models/voice"), "reference_audio": reference,
+            worker.synthesize({"model": str(voice_model), "reference_audio": reference,
                                "reference_text": SAMPLES[1], "text": "音声の確認です。必要な情報を分かりやすく説明します。", "output": str(output)})
         wave, rate = sf.read(output)
         assert np.isfinite(wave).all() and len(wave) > rate and np.max(np.abs(wave)) > .001

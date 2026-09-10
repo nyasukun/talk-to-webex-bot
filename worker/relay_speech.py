@@ -9,6 +9,42 @@ SPEECH_MAX_LINE_CHARACTERS = 160
 SPEECH_OPENING_CHARACTERS = 32
 SPEECH_TOKENS_PER_SECOND = 12.5  # Codec tokens per second of generated audio.
 
+# Audio conditioning. Levels are RMS over 20 ms frames; "active" frames carry speech rather than room tone.
+SPEECH_FRAME_SECONDS = 0.02
+SPEECH_ACTIVE_FLOOR_DB = -40.0  # Never treat a frame this far below the loudest one as speech.
+SPEECH_ACTIVE_CEILING_DB = -25.0  # Never treat a frame this close to the loudest one as silence.
+REFERENCE_HIGH_PASS_HZ = 60.0
+REFERENCE_TARGET_RMS_DB = -20.0
+REFERENCE_GAIN_RANGE_DB = (-12.0, 18.0)
+OUTPUT_HIGH_PASS_HZ = 50.0
+OUTPUT_TARGET_RMS_DB = -18.0
+OUTPUT_GAIN_RANGE_DB = (-8.0, 8.0)
+OUTPUT_LEADING_SECONDS = 0.08
+OUTPUT_TRAILING_SECONDS = 0.30
+OUTPUT_FADE_IN_SECONDS = 0.005
+OUTPUT_FADE_OUT_SECONDS = 0.02
+OUTPUT_PEAK_CEILING = 0.95
+
+# Sampling: the library defaults, plus two later upstream fixes applied here without changing the pinned
+# runtime. The repetition penalty looks only at recent tokens (a whole-history penalty made long segments
+# speed up), and the stop token competes in top-k/top-p like every other token instead of being exempt.
+SPEECH_SAMPLING = dict(temperature=0.9, top_k=50, top_p=1.0, repetition_penalty=1.05)
+SPEECH_REPETITION_WINDOW = 64
+
+
+def install_sampling_fixes(model):
+    """Wrap the model's token sampler once; the wrapper is a no-op on a runtime that already has the fixes."""
+    original = model._sample_token
+    if getattr(original, 'relay_sampling_fixes', False):
+        return
+    def sample(logits, *args, generated_tokens=None, eos_token_id=None, **kwargs):
+        del eos_token_id
+        if generated_tokens:
+            generated_tokens = generated_tokens[-SPEECH_REPETITION_WINDOW:]
+        return original(logits, *args, generated_tokens=generated_tokens, **kwargs)
+    sample.relay_sampling_fixes = True
+    model._sample_token = sample
+
 
 @lru_cache(maxsize=1)
 def speech_tokenizer_api():
@@ -176,6 +212,132 @@ def joined_speech_parts(results):
     if not arrays:
         raise WorkerRequestError("読み上げ音声を生成できませんでした。")
     return SimpleNamespace(audio=np.concatenate(arrays), sample_rate=rate, fragments=len(arrays))
+
+
+def frame_levels(audio, sample_rate):
+    """RMS of each 20 ms frame and the frame length in samples."""
+    import numpy as np
+    size = max(1, round(sample_rate * SPEECH_FRAME_SECONDS))
+    count = len(audio) // size
+    if not count:
+        return np.zeros(0, dtype=np.float32), size
+    frames = np.asarray(audio[:count * size], dtype=np.float32).reshape(count, size)
+    return np.sqrt(np.mean(frames ** 2, axis=1)), size
+
+
+def active_frames(levels):
+    """Frames clearly above the recording's own quiet floor; short inputs count entirely as speech."""
+    import numpy as np
+    if len(levels) < 5:
+        return np.ones(len(levels), dtype=bool)
+    quiet, peak = float(np.percentile(levels, 15)), float(levels.max())
+    lower = max(peak * 10 ** (SPEECH_ACTIVE_FLOOR_DB / 20), 1e-4)
+    upper = max(lower, peak * 10 ** (SPEECH_ACTIVE_CEILING_DB / 20))
+    return levels > min(max(quiet * 3, lower), upper)
+
+
+def high_passed(audio, sample_rate, cutoff):
+    """Zero-phase removal of DC offset and rumble below the voice band."""
+    import numpy as np
+    from scipy.signal import butter, sosfiltfilt
+    if len(audio) < 64:
+        return np.asarray(audio, dtype=np.float32).copy()
+    filtered = sosfiltfilt(butter(2, cutoff, btype='highpass', fs=sample_rate, output='sos'), audio)
+    return np.asarray(filtered, dtype=np.float32)
+
+
+def speech_bounds(audio, sample_rate):
+    """Sample range from the first to the last active frame, or None when nothing is active."""
+    import numpy as np
+    levels, size = frame_levels(audio, sample_rate)
+    active = np.flatnonzero(active_frames(levels))
+    if not active.size:
+        return None
+    return int(active[0]) * size, min(len(audio), (int(active[-1]) + 1) * size)
+
+
+def trimmed_speech(audio, sample_rate, leading, trailing):
+    """Cut silence beyond `leading` seconds before and `trailing` seconds after the speech."""
+    bounds = speech_bounds(audio, sample_rate)
+    if bounds is None:
+        return audio
+    start = max(0, bounds[0] - round(leading * sample_rate))
+    end = min(len(audio), bounds[1] + round(trailing * sample_rate))
+    return audio[start:end]
+
+
+def level_gain(audio, sample_rate, target_db, gain_range_db, ceiling):
+    """Linear gain that brings the speech RMS to `target_db` within bounds and under the peak ceiling."""
+    import math
+    import numpy as np
+    levels, _ = frame_levels(audio, sample_rate)
+    active = active_frames(levels)
+    if not active.any():
+        return 1.0
+    level = float(np.sqrt(np.mean(levels[active] ** 2)))
+    if level <= 0:
+        return 1.0
+    gain_db = min(max(target_db - 20 * math.log10(level), gain_range_db[0]), gain_range_db[1])
+    gain = 10 ** (gain_db / 20)
+    peak = float(np.abs(audio).max())
+    if peak * gain > ceiling:
+        gain = ceiling / peak
+    return gain
+
+
+def faded(audio, sample_rate, fade_in, fade_out):
+    import numpy as np
+    audio = np.asarray(audio, dtype=np.float32).copy()
+    head = min(len(audio), round(fade_in * sample_rate))
+    tail = min(len(audio) - head, round(fade_out * sample_rate))
+    if head > 1:
+        audio[:head] *= np.linspace(0, 1, head, dtype=np.float32)
+    if tail > 1:
+        audio[len(audio) - tail:] *= np.linspace(1, 0, tail, dtype=np.float32)
+    return audio
+
+
+def prepare_voice_reference(audio, sample_rate, reduce_noise=True):
+    """Condition the registered recording before the voice model learns from it.
+
+    Rumble is removed, optional noise reduction runs on the whole take, and the speech level is
+    normalized. The take keeps its full length: cutting the silence around the speech measurably
+    lowered speaker similarity with the 0.6B model, so the timing of the recording is left alone and
+    the reference transcript remains valid. Nothing is written back to the file.
+    """
+    import numpy as np
+    audio = high_passed(np.asarray(audio, dtype=np.float32), sample_rate, REFERENCE_HIGH_PASS_HZ)
+    if reduce_noise:
+        audio = clean_voice_reference(audio, sample_rate)
+    gain = level_gain(audio, sample_rate, REFERENCE_TARGET_RMS_DB, REFERENCE_GAIN_RANGE_DB, OUTPUT_PEAK_CEILING)
+    audio = np.asarray(audio * gain, dtype=np.float32)
+    if not len(audio) or not np.isfinite(audio).all():
+        raise WorkerRequestError("参照音声の調整に失敗しました。参照録音を確認してください。")
+    return audio
+
+
+def finished_speech(audio, sample_rate):
+    """Even out one generated segment before playback.
+
+    Removes rumble, shortens leading silence, ends the segment with a fixed short pause, normalizes the
+    speech level toward a common target and fades the edges so consecutive segments join without clicks.
+    Segments shorter than a few frames are returned unchanged.
+    """
+    import numpy as np
+    audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if len(audio) < 5 * max(1, round(sample_rate * SPEECH_FRAME_SECONDS)):
+        return audio
+    audio = high_passed(audio, sample_rate, OUTPUT_HIGH_PASS_HZ)
+    audio = trimmed_speech(audio, sample_rate, OUTPUT_LEADING_SECONDS, OUTPUT_TRAILING_SECONDS)
+    gain = level_gain(audio, sample_rate, OUTPUT_TARGET_RMS_DB, OUTPUT_GAIN_RANGE_DB, OUTPUT_PEAK_CEILING)
+    audio = faded(audio * gain, sample_rate, OUTPUT_FADE_IN_SECONDS, OUTPUT_FADE_OUT_SECONDS)
+    bounds = speech_bounds(audio, sample_rate)
+    pause = round(OUTPUT_TRAILING_SECONDS * sample_rate)
+    if bounds is not None and len(audio) - bounds[1] < pause:
+        audio = np.concatenate([audio, np.zeros(pause - (len(audio) - bounds[1]), dtype=np.float32)])
+    if not np.isfinite(audio).all():
+        raise WorkerRequestError("音声生成結果が不正です。")
+    return audio
 
 
 def clean_voice_reference(audio, sample_rate):
