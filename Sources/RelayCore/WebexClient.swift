@@ -33,7 +33,8 @@ public actor WebexClient {
     private let transport: any HTTPTransport
     private var retryAfter = Date.distantPast
     public init(token: String, transport: any HTTPTransport = WebexTransport()) {
-        self.token = token; self.transport = transport
+        self.token = token
+        self.transport = transport
     }
     public static func isAllowed(_ url: URL) -> Bool {
         url.scheme == "https" && url.host == "webexapis.com" && (url.port == nil || url.port == 443)
@@ -57,7 +58,8 @@ public actor WebexClient {
         try Task.checkCancellation()
         if retryAfter > Date() { throw RelayError.rateLimited(retryAfter.timeIntervalSinceNow) }
         var request = URLRequest(url: url)
-        request.httpMethod = method; request.httpBody = body
+        request.httpMethod = method
+        request.httpBody = body
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
@@ -157,8 +159,10 @@ public actor WebexClient {
                 append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n")
             }
             append("--\(boundary)\r\nContent-Disposition: form-data; name=\"files\"; filename=\"active-window.png\"\r\nContent-Type: image/png\r\n\r\n")
-            multipart.append(png); append("\r\n--\(boundary)--\r\n")
-            body = multipart; contentType = "multipart/form-data; boundary=\(boundary)"
+            multipart.append(png)
+            append("\r\n--\(boundary)--\r\n")
+            body = multipart
+            contentType = "multipart/form-data; boundary=\(boundary)"
         } else {
             var fields = ["roomId": roomID, "text": text]
             if let parentID { fields["parentId"] = parentID }

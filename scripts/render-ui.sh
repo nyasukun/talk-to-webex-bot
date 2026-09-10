@@ -6,7 +6,7 @@ export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache"
 swift build --disable-sandbox
 binary_dir=$(swift build --show-bin-path --disable-sandbox)
 sources=()
-for source in Sources/LocalVoiceRelay/*.swift; do
+for source in Sources/LocalVoiceRelay/*.swift Sources/LocalVoiceRelay/Views/*.swift; do
     if [[ "$source" != */LocalVoiceRelayApp.swift ]]; then sources+=("$source"); fi
 done
 swiftc -parse-as-library -I "$binary_dir/Modules" "${sources[@]}" "$binary_dir"/RelayCore.build/*.o scripts/render-ui.swift -o .build/render-ui

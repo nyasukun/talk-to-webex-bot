@@ -9,15 +9,20 @@ import Foundation
     init(begin: @escaping (ProcessInfo.ActivityOptions) -> NSObjectProtocol = {
         ProcessInfo.processInfo.beginActivity(options: $0, reason: "音声アシスタントの常時待受")
     }, end: @escaping (NSObjectProtocol) -> Void = { ProcessInfo.processInfo.endActivity($0) }) {
-        self.begin = begin; self.end = end
+        self.begin = begin
+        self.end = end
     }
     func update(listening: Bool, preventSleep: Bool) {
         if listening, token != nil, preventsSleep == preventSleep { return }
-        if let token { end(token); self.token = nil }
+        if let token {
+            end(token)
+            self.token = nil
+        }
         preventsSleep = nil
         guard listening else { return }
         var options: ProcessInfo.ActivityOptions = [.userInitiatedAllowingIdleSystemSleep]
         if preventSleep { options.insert(.idleSystemSleepDisabled) }
-        token = begin(options); preventsSleep = preventSleep
+        token = begin(options)
+        preventsSleep = preventSleep
     }
 }

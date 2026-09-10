@@ -2,8 +2,18 @@ import Foundation
 import Combine
 import RelayCore
 
-enum LogLevel: String, Codable, CaseIterable { case info = "情報", warning = "注意", error = "エラー" }
-enum LogCategory: String, Codable, CaseIterable { case app = "アプリ", audio = "音声入力", webex = "Webex", speech = "読み上げ", permissions = "権限" }
+enum LogLevel: String, Codable, CaseIterable {
+    case info = "情報"
+    case warning = "注意"
+    case error = "エラー"
+}
+enum LogCategory: String, Codable, CaseIterable {
+    case app = "アプリ"
+    case audio = "音声入力"
+    case webex = "Webex"
+    case speech = "読み上げ"
+    case permissions = "権限"
+}
 enum LogEvent: String, Codable {
     case launched, settingsSaved, stopped, microphoneStarted, microphoneTest, recognitionAccepted, recognitionRejected
     case wakeDetected, speakerMeasured, screenCaptured, permissionsChecked, environmentReady
@@ -86,7 +96,8 @@ struct LogEntry: Identifiable, Codable {
     private let file: URL?
     private let capacity: Int
     init(file: URL? = nil, capacity: Int = 500) {
-        self.file = file; self.capacity = max(1, capacity)
+        self.file = file
+        self.capacity = max(1, capacity)
         if let file, let data = try? PrivateFiles.read(file, maximumBytes: 1_000_000),
            let saved = try? JSONDecoder().decode([LogEntry].self, from: data) {
             let allowed = Set(LogMetric.allCases.map(\.rawValue))
@@ -113,7 +124,10 @@ struct LogEntry: Identifiable, Codable {
         default: record(.operationFailed, category: category, level: .error)
         }
     }
-    func clear() { entries = []; persist() }
+    func clear() {
+        entries = []
+        persist()
+    }
     func text(_ entries: [LogEntry]) -> String {
         entries.map { "\($0.date.formatted(.iso8601)) [\($0.level.rawValue)] [\($0.category.rawValue)] \($0.event.message) \($0.details)" }.joined(separator: "\n")
     }

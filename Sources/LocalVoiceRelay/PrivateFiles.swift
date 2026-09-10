@@ -19,7 +19,10 @@ enum PrivateFiles {
         let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        defer { try? handle.close(); try? FileManager.default.removeItem(at: temporary) }
+        defer {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: temporary)
+        }
         try handle.write(contentsOf: data)
         try handle.synchronize()
         guard rename(temporary.path, destination.path) == 0 else {

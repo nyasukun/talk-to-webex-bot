@@ -15,22 +15,32 @@ extension AppModel {
     }
     func chooseReference(kind: ReferenceKind) {
         guard canConfigure else { return }
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [.wav, .aiff, .mpeg4Audio, .mp3]; panel.canChooseDirectories = false
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.wav, .aiff, .mpeg4Audio, .mp3]
+        panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let source = panel.url else { return }
         do {
             try PrivateStorage.prepare()
             let target = kind.newFileURL()
             do { try AudioRecorder.importReference(from: source, to: target) }
-            catch { try? FileManager.default.removeItem(at: target); throw error }
+            catch {
+                try? FileManager.default.removeItem(at: target)
+                throw error
+            }
             do { try persistReference(kind: kind, path: target.path) }
-            catch { try? FileManager.default.removeItem(at: target); throw error }
+            catch {
+                try? FileManager.default.removeItem(at: target)
+                throw error
+            }
             detail = "参照音声をこのMacのアプリ用フォルダへコピーしました。他の設定は「変更を保存」で適用します。"
         } catch { fail(error) }
     }
     func startReference(kind: ReferenceKind) async {
         guard canConfigure else { return }
-        stop(); let run = epoch
-        phase = .preparing; detail = "許可済みのマイクで参照音声を録音します。"
+        stop()
+        let run = epoch
+        phase = .preparing
+        detail = "許可済みのマイクで参照音声を録音します。"
         do {
             try Permissions.requireMicrophone()
             guard run == epoch else { return }
@@ -39,15 +49,24 @@ extension AppModel {
             let recorder = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 24000,
                                                                      AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16])
             guard recorder.record(forDuration: 30) else { throw RelayError.message("参照音声の録音を開始できません。") }
-            referenceRecorder = recorder; referenceKind = kind; referenceURL = url; referenceRecording = true
+            referenceRecorder = recorder
+            referenceKind = kind
+            referenceURL = url
+            referenceRecording = true
             phase = .recording
             detail = "参照音声を録音中です。10〜20秒話し、録音終了を押してください（最大30秒）。"
-            launch { [self] _ in try? await Task.sleep(nanoseconds: 30_000_000_000); if !Task.isCancelled { finishReference() } }
+            launch { [self] _ in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if !Task.isCancelled { finishReference() }
+            }
         } catch { if run == epoch { fail(error) } }
     }
     func finishReference() {
         guard referenceRecording, let recorder = referenceRecorder, let url = referenceURL else { return }
-        recorder.stop(); operation?.cancel(); referenceRecorder = nil; referenceRecording = false
+        recorder.stop()
+        operation?.cancel()
+        referenceRecorder = nil
+        referenceRecording = false
         phase = .stopped
         do {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

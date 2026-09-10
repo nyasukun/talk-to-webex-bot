@@ -2,7 +2,6 @@
 """Offline checks on generated, generic Japanese speech; never records the microphone."""
 import argparse
 import contextlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -44,9 +43,8 @@ def main():
     work = ROOT / ".build/smoke"
     work.mkdir(parents=True, exist_ok=True)
     os.environ["NUMBA_CACHE_DIR"] = str(work / "numba")
-    spec = importlib.util.spec_from_file_location("relay_worker", ROOT / "worker/relay_worker.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.path.insert(0, str(ROOT / "worker"))
+    import relay_worker as module
     worker = module.Worker()
     import numpy as np
     import soundfile as sf

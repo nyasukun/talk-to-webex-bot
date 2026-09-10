@@ -1,13 +1,12 @@
-import importlib.util
 import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import sys
 import unittest
 
-spec = importlib.util.spec_from_file_location("protocol_worker", Path(__file__).resolve().parents[1] / "relay_worker.py")
-worker = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(worker)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import relay_worker as worker
 
 
 class ProtocolTests(unittest.TestCase):

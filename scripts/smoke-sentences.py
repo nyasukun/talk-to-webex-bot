@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Exercise long, line-separated speech offline with a generic synthetic reference; never play it."""
 import contextlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,9 +17,8 @@ WORK.mkdir(parents=True, exist_ok=True)
 reference = WORK / 'synthetic-reference.wav'
 ref_text = '今日は予定を確認します。必要な情報を整理して、順番に作業を進めます。'
 subprocess.run(['/usr/bin/say', '-v', 'Kyoko', '--data-format=LEI16@24000', '-o', str(reference), ref_text], check=True)
-spec = importlib.util.spec_from_file_location('relay_worker', ROOT / 'worker/relay_worker.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+sys.path.insert(0, str(ROOT / 'worker'))
+import relay_worker as module
 worker = module.Worker()
 import numpy as np
 import soundfile as sf

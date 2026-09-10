@@ -9,13 +9,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("relay_worker", ROOT / "relay_worker.py")
-worker = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(worker)
+sys.path.insert(0, str(ROOT))
+import relay_common
+import relay_recognition
+import relay_speech
+import relay_worker as worker
 
 
 def planned_units(text):
-    return [unit for _, _, unit in worker.speech_plan(text)]
+    return [unit for _, _, unit in relay_speech.speech_plan(text)]
 
 
 def audio_result(value, line=1, total=2):
@@ -33,7 +35,7 @@ class WorkerTests(unittest.TestCase):
         voice = np.where(voiced, 0.2 * np.sin(2 * np.pi * 220 * t), 0)
         source = np.asarray(noise + voice, dtype=np.float32)
         before = source.copy()
-        cleaned = worker.clean_voice_reference(source, rate)
+        cleaned = relay_speech.clean_voice_reference(source, rate)
         self.assertEqual(cleaned.shape, source.shape)
         self.assertTrue(np.isfinite(cleaned).all())
         self.assertTrue(np.array_equal(source, before))
@@ -47,7 +49,7 @@ class WorkerTests(unittest.TestCase):
         import numpy as np
         for source in [np.zeros(72000, dtype=np.float32), np.full(72000, 0.2, dtype=np.float32)]:
             with patch('noisereduce.reduce_noise', side_effect=AssertionError('No usable noise profile')):
-                self.assertTrue(np.array_equal(worker.clean_voice_reference(source, 24000), source))
+                self.assertTrue(np.array_equal(relay_speech.clean_voice_reference(source, 24000), source))
 
     def test_reference_cache_resamples_stereo_and_invalidates_without_writing_the_original(self):
         import numpy as np
@@ -93,8 +95,8 @@ class WorkerTests(unittest.TestCase):
     def test_only_the_opening_is_shortened_and_later_newlines_stay_intact(self):
         first = '最初に今日の予定とこれから進める作業について必要な情報を順番にお届けします。'
         later = '次は少し長い説明です。必要な資料を確認したら、内容を整理して次の作業へ進んでください。'
-        plan = list(worker.speech_plan(first + '\n\n' + later))
-        self.assertLessEqual(len(plan[0][2]), worker.SPEECH_OPENING_CHARACTERS)
+        plan = list(relay_speech.speech_plan(first + '\n\n' + later))
+        self.assertLessEqual(len(plan[0][2]), relay_speech.SPEECH_OPENING_CHARACTERS)
         self.assertEqual(''.join(unit for index, _, unit in plan if index == 1), first)
         self.assertEqual([unit for index, _, unit in plan if index == 2], [later])
         self.assertTrue(all(total == 2 for _, total, _ in plan))
@@ -102,35 +104,35 @@ class WorkerTests(unittest.TestCase):
     def test_short_opening_does_not_cut_words_and_decimal_numbers_remain_whole(self):
         source = '接続を確認しました。' + '資料を準備してから次の作業へ進みます。' * 10
         self.assertEqual(planned_units(source)[0], '接続を確認しました。')
-        self.assertEqual(worker.sentence_parts('Version 2.5 is ready. Time is 13:25. Next step.'),
+        self.assertEqual(relay_speech.sentence_parts('Version 2.5 is ready. Time is 13:25. Next step.'),
                          ['Version 2.5 is ready.', 'Time is 13:25.', 'Next step.'])
 
     def test_preference_preserves_short_single_and_uncertain_turns(self):
         for scores in ([None], [0.68], [0.71, None], [0.85, 0.68], [0.59, 0.3]):
-            self.assertEqual(worker.preferred_turns(scores, [1.0] * len(scores)), list(range(len(scores))))
-        self.assertEqual(worker.preferred_turns([0.84, 0.43, None], [1.0, 0.45, 1.0]), [0, 2])
-        self.assertEqual(worker.preferred_turns([0.43, 0.84], [0.45, 1.0]), [1])
-        self.assertEqual(worker.preferred_turns([0.84, 0.43], [1.0, float('nan')]), [0, 1])
+            self.assertEqual(relay_recognition.preferred_turns(scores, [1.0] * len(scores)), list(range(len(scores))))
+        self.assertEqual(relay_recognition.preferred_turns([0.84, 0.43, None], [1.0, 0.45, 1.0]), [0, 2])
+        self.assertEqual(relay_recognition.preferred_turns([0.43, 0.84], [0.45, 1.0]), [1])
+        self.assertEqual(relay_recognition.preferred_turns([0.84, 0.43], [1.0, float('nan')]), [0, 1])
 
     def test_turn_spans_merge_pauses_below_the_gap_and_split_at_exactly_the_gap(self):
         first, second = {"start": 0, "end": 1000}, {"start": 8199, "end": 9000}
         third, fourth = {"start": 16200, "end": 17000}, {"start": 17500, "end": 17600}
-        self.assertEqual(worker.speech_turn_spans([]), [])
-        self.assertEqual(worker.speech_turn_spans([first]), [[first]])
-        self.assertEqual(worker.speech_turn_spans([first, second, third, fourth]), [[first, second], [third, fourth]])
-        self.assertEqual(worker.speech_turn_spans([first, second, third], gap=7199), [[first], [second], [third]])
-        self.assertEqual(worker.speech_turn_spans([first, second, third], gap=7201), [[first, second, third]])
+        self.assertEqual(relay_recognition.speech_turn_spans([]), [])
+        self.assertEqual(relay_recognition.speech_turn_spans([first]), [[first]])
+        self.assertEqual(relay_recognition.speech_turn_spans([first, second, third, fourth]), [[first, second], [third, fourth]])
+        self.assertEqual(relay_recognition.speech_turn_spans([first, second, third], gap=7199), [[first], [second], [third]])
+        self.assertEqual(relay_recognition.speech_turn_spans([first, second, third], gap=7201), [[first, second, third]])
 
     @unittest.skipUnless(importlib.util.find_spec('numpy'), 'Requires the local audio runtime.')
     def test_voiced_helpers_count_and_join_spans_only(self):
         import numpy as np
         audio = np.arange(100, dtype=np.float32)
         spans = [{"start": 10, "end": 13}, {"start": 50, "end": 52}]
-        self.assertEqual(worker.voiced_sample_count([]), 0)
-        self.assertEqual(worker.voiced_sample_count(spans), 5)
-        self.assertEqual(worker.voiced_audio(audio, spans).tolist(), [10, 11, 12, 50, 51])
+        self.assertEqual(relay_recognition.voiced_sample_count([]), 0)
+        self.assertEqual(relay_recognition.voiced_sample_count(spans), 5)
+        self.assertEqual(relay_recognition.voiced_audio(audio, spans).tolist(), [10, 11, 12, 50, 51])
         with self.assertRaises(ValueError):
-            worker.voiced_audio(audio, [])
+            relay_recognition.voiced_audio(audio, [])
 
     def test_stream_preserves_chunk_order_and_finishes(self):
         instance = worker.Worker()
@@ -176,19 +178,19 @@ class WorkerTests(unittest.TestCase):
 
     def test_confidence_rejects_missing_no_speech_repetition_and_uncertain(self):
         good = dict(text="音声です", no_speech_prob=0.1, avg_logprob=-0.2, compression_ratio=1.1)
-        self.assertEqual(worker.usable_segments([good]), [good])
+        self.assertEqual(relay_recognition.usable_segments([good]), [good])
         for field, value in [("no_speech_prob", 0.9), ("avg_logprob", -1.5), ("compression_ratio", 3.1)]:
-            self.assertEqual(worker.usable_segments([dict(good, **{field: value})]), [])
-        self.assertEqual(worker.usable_segments([{}]), [])
+            self.assertEqual(relay_recognition.usable_segments([dict(good, **{field: value})]), [])
+        self.assertEqual(relay_recognition.usable_segments([{}]), [])
 
     def test_remote_or_missing_model_rejected(self):
         for path in ["model/name", "https://example.invalid/model", "/missing/model"]:
             with self.assertRaises(ValueError):
-                worker.local_path(path, directory=True)
+                relay_common.local_path(path, directory=True)
 
     def test_local_file_accepted(self):
         with tempfile.NamedTemporaryFile() as file:
-            self.assertTrue(worker.local_path(file.name).is_file())
+            self.assertTrue(relay_common.local_path(file.name).is_file())
 
     def test_protocol_stays_alive_after_bad_request(self):
         run = subprocess.run([sys.executable, str(ROOT / "relay_worker.py")],
@@ -204,12 +206,12 @@ class WorkerTests(unittest.TestCase):
         source = "説明です。" + "長" * 5100 + "！\n最後です。"
         pieces = planned_units(source)
         self.assertEqual("".join(pieces), source.replace('\n', ''))
-        self.assertTrue(all(len(piece) <= worker.SPEECH_MAX_LINE_CHARACTERS for piece in pieces))
+        self.assertTrue(all(len(piece) <= relay_speech.SPEECH_MAX_LINE_CHARACTERS for piece in pieces))
 
     def test_long_clauses_split_at_punctuation_symbols_and_keep_the_tail(self):
         for separator in ('、', '，', ';', '：', '→', '／', '・', '—'):
             source = 'あ' * 18 + separator + 'い' * 18 + '、' + 'う' * 18 + '。'
-            with patch.object(worker, 'SPEECH_MAX_LINE_CHARACTERS', 32):
+            with patch.object(relay_speech, 'SPEECH_MAX_LINE_CHARACTERS', 32):
                 pieces = planned_units(source)
             self.assertEqual(pieces[0], 'あ' * 18 + separator)
             self.assertEqual(''.join(pieces), source)
@@ -220,7 +222,7 @@ class WorkerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'darwin', 'Uses the macOS offline word dictionary.')
     def test_japanese_split_keeps_words_and_polite_ending_together(self):
         source = 'サービスの概要といくつかの機能についての要約をしっかりお届けしています。'
-        with patch.object(worker, 'SPEECH_MAX_LINE_CHARACTERS', 32):
+        with patch.object(relay_speech, 'SPEECH_MAX_LINE_CHARACTERS', 32):
             pieces = planned_units(source)
         self.assertEqual(''.join(pieces), source)
         self.assertTrue(any('お届けしています。' in part for part in pieces))
@@ -229,7 +231,7 @@ class WorkerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'darwin', 'Uses the macOS offline word dictionary.')
     def test_early_comma_and_long_kana_words_are_not_cut_at_character_limit(self):
         source = 'このあとは、じゅうごじさんじゅっぷんからの動画チェックと資料整理がありますが、先に予定を確認しますか？'
-        with patch.object(worker, 'SPEECH_MAX_LINE_CHARACTERS', 32):
+        with patch.object(relay_speech, 'SPEECH_MAX_LINE_CHARACTERS', 32):
             pieces = planned_units(source)
         self.assertEqual(pieces[0], 'このあとは、')
         self.assertEqual(''.join(pieces), source)
@@ -240,13 +242,13 @@ class WorkerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'darwin', 'Uses the macOS offline word dictionary.')
     def test_word_offsets_handle_non_bmp_characters_and_honorific_prefix(self):
         source = '😀予定のチェックをお届けしています。'
-        starts = worker.speech_word_starts(source)
+        starts = relay_speech.speech_word_starts(source)
         self.assertIn(source.index('チェック'), starts)
         self.assertNotIn(source.index('届け'), starts)
         self.assertTrue(all(0 <= index < len(source) for index in starts))
 
     def test_forced_break_keeps_small_kana_and_combining_mark_with_previous_character(self):
-        with patch.object(worker, 'speech_word_starts', return_value=[]), patch.object(worker, 'SPEECH_MAX_LINE_CHARACTERS', 32):
+        with patch.object(relay_speech, 'speech_word_starts', return_value=[]), patch.object(relay_speech, 'SPEECH_MAX_LINE_CHARACTERS', 32):
             for text in ('ア' * 30 + 'チェックをします。', 'a' * 31 + 'e\u0301' + 'b' * 10):
                 pieces = planned_units(text)
                 self.assertEqual(''.join(pieces), text)
@@ -267,7 +269,7 @@ class WorkerTests(unittest.TestCase):
         def checked(results, _):
             text = ''.join(results)
             if len(text) > 10:
-                raise worker.SpeechLengthLimit()
+                raise relay_speech.SpeechLengthLimit()
             return SimpleNamespace(text=text)
         text = '最初の予定を確認し、次の作業を始めます。'
         with patch.object(worker, 'checked_sentence', side_effect=checked):
@@ -280,7 +282,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_subdivision_is_bounded_and_other_failures_are_not_retried(self):
         from unittest.mock import Mock
-        for error, expected_calls in ((worker.SpeechLengthLimit(), 4), (ValueError('invalid audio'), 1)):
+        for error, expected_calls in ((relay_speech.SpeechLengthLimit(), 4), (ValueError('invalid audio'), 1)):
             instance = worker.Worker()
             instance.tts = Mock()
             instance.tts.generate.side_effect = lambda **_: (value for value in [])
@@ -296,7 +298,7 @@ class WorkerTests(unittest.TestCase):
                          ['Version 2.5 is ready. Next step.', '終了です。'])
         for invalid in ('', ' \n', None, 'あ' * 20001):
             with self.assertRaises(ValueError):
-                worker.speech_lines(invalid)
+                relay_speech.speech_lines(invalid)
 
     @unittest.skipUnless(importlib.util.find_spec('numpy'), 'Requires the local audio runtime.')
     def test_sentence_generation_restarts_for_every_line_and_limits_tokens(self):
@@ -349,7 +351,7 @@ class WorkerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 next(chunks)
         with self.assertRaises(ValueError):
-            worker.joined_speech_parts([audio_result(1), SimpleNamespace(audio=[2], sample_rate=16000)])
+            relay_speech.joined_speech_parts([audio_result(1), SimpleNamespace(audio=[2], sample_rate=16000)])
 
     @unittest.skipUnless(importlib.util.find_spec('numpy'), 'Full audio checks require the local runtime.')
     def test_bad_or_runaway_sentence_never_reaches_playback(self):
@@ -357,12 +359,12 @@ class WorkerTests(unittest.TestCase):
         from types import SimpleNamespace
         def chunk(tokens, audio=None):
             return SimpleNamespace(audio=np.zeros(240) if audio is None else audio, sample_rate=24000, token_count=tokens)
-        valid = worker.checked_sentence(iter([chunk(10), chunk(9)]), 20)
+        valid = relay_speech.checked_sentence(iter([chunk(10), chunk(9)]), 20)
         self.assertEqual(len(valid.audio), 480)
         for chunks in ([chunk(10), chunk(10)], [chunk(20)], [], [chunk(1, [float('nan')])],
                        [chunk(1, [])], [chunk(1, np.zeros(24000 * 10))]):
             with self.assertRaises(ValueError):
-                worker.checked_sentence(iter(chunks), 20)
+                relay_speech.checked_sentence(iter(chunks), 20)
 
     @unittest.skipUnless(importlib.util.find_spec('numpy'), 'Requires the local audio runtime.')
     def test_speaker_paths_slice_voiced_audio_and_score_windows_and_turns_exactly(self):
@@ -417,11 +419,11 @@ class WorkerTests(unittest.TestCase):
         with patch.object(instance, 'load_audio', return_value=np.zeros(64000, dtype=np.float32)), \
                 patch.object(instance, 'speech_spans', return_value=[{"start": 0, "end": 47999}]), \
                 patch.object(instance, 'embedding', side_effect=AssertionError('embedding must not run')):
-            with self.assertRaises(worker.WorkerRequestError) as verify:
+            with self.assertRaises(relay_common.WorkerRequestError) as verify:
                 instance.check_speaker(audio, [{"start": 1000, "end": 41000}, {"start": 45000, "end": 75000}],
                                        {"reference_audio": "reference.wav"})
             self.assertEqual(str(verify.exception), "本人照合用に3秒以上の発話を含む音声を登録してください。")
-            with self.assertRaises(worker.WorkerRequestError) as prefer:
+            with self.assertRaises(relay_common.WorkerRequestError) as prefer:
                 instance.prefer_speaker(audio, [{"start": 1000, "end": 41000}], {"reference_audio": "reference.wav"})
             self.assertEqual(str(prefer.exception), "声の優先用に3秒以上の発話を含む参照音声を登録してください。")
         # Exactly 3 s of reference speech and exactly 25600 voiced samples pass both strict gates.
@@ -439,19 +441,19 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(embed.call_count, 7)
 
     def test_speaker_windows_do_not_create_short_padded_tails(self):
-        self.assertEqual(worker.speaker_window_ranges(18880), [])
+        self.assertEqual(relay_recognition.speaker_window_ranges(18880), [])
         for length in (25600, 49600, 154880):
-            windows = worker.speaker_window_ranges(length)
+            windows = relay_recognition.speaker_window_ranges(length)
             self.assertEqual(windows[0][0], 0)
             self.assertEqual(windows[-1][1], length)
             self.assertTrue(all(25600 <= end - start <= 48000 for start, end in windows))
             self.assertTrue(all(right[0] <= left[1] for left, right in zip(windows, windows[1:])))
 
     def test_speaker_rejects_low_window_even_when_overall_matches(self):
-        self.assertTrue(worker.speaker_scores_accepted([0.86, 0.83, 0.85], 0.76))
+        self.assertTrue(relay_recognition.speaker_scores_accepted([0.86, 0.83, 0.85], 0.76))
         for scores in ([], [0.94, 0.52], [0.94, float('nan')], [float('inf')]):
-            self.assertFalse(worker.speaker_scores_accepted(scores, 0.76))
-        self.assertFalse(worker.speaker_scores_accepted([0.95], float('nan')))
+            self.assertFalse(relay_recognition.speaker_scores_accepted(scores, 0.76))
+        self.assertFalse(relay_recognition.speaker_scores_accepted([0.95], float('nan')))
 
 
 if __name__ == "__main__":

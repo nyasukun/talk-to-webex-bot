@@ -1,0 +1,51 @@
+import SwiftUI
+import RelayCore
+
+struct OutputSettingsView: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        Form {
+            SettingsIntro(section: .output, description: "声の種類と、返信を待つ間の動作を設定します。")
+            Section {
+                Toggle("レスポンスを読み上げる", isOn: $model.settings.readReplies).disabled(!model.canConfigure)
+                Picker("読み上げ方式", selection: $model.settings.ttsEngine) {
+                    Text("Mac標準音声").tag("system")
+                    Text("Qwen3-TTS · 自分の声を再現").tag("qwen")
+                }.disabled(!model.canConfigure)
+                if model.settings.ttsEngine == "system" {
+                    Picker("日本語の声", selection: $model.settings.systemVoiceID) {
+                        Text("自動選択").tag("")
+                        ForEach(SpeechOutput.voices, id: \.identifier) { Text(SpeechOutput.name($0)).tag($0.identifier) }
+                    }.disabled(!model.canConfigure)
+                } else {
+                    ReferenceSettings(model: model, kind: .voice)
+                    TextSetting(title: "参照録音で実際に読んだ全文", text: $model.settings.referenceText, height: 85).disabled(!model.canConfigure)
+                    Toggle("参照音声の背景ノイズを軽減", isOn: $model.settings.reduceReferenceNoise).disabled(!model.canConfigure)
+                    Text("声と一緒に再現される背景音を抑えます。声の響きが気になる場合は、オフの音声と比べてください。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } header: { Text("読み上げる声") } footer: { Text("Qwenは10〜20秒の参照音声から声を再現します。参照本文は録音の全文と一致させてください。追加学習は行いません。") }
+            Section {
+                TextSetting(title: "試聴する文章", text: $model.speechTestText, height: 105)
+                Button("この設定で読み上げを試す", systemImage: "play.fill") { model.testSpeech() }.disabled(!model.canConfigure)
+            } header: { Text("声を試す") } footer: { Text("この試聴はWebexへ送信しません。Qwenは冒頭を短く区切り、音声ができ次第読み始めます。その後は改行に沿って読み上げ、再生中も次の行を準備します。") }.disabled(!model.canConfigure)
+            Section {
+                Toggle("返信待ちにソナー音を流す", isOn: $model.settings.waitingSound)
+                HStack {
+                    Text("ソナー音量")
+                    Slider(value: $model.settings.waitingSoundVolume, in: 0...1).frame(maxWidth: 220)
+                }.disabled(!model.settings.waitingSound)
+                Toggle("返信待ちに音声モデルを準備する", isOn: $model.settings.hotStandby)
+            } header: { Text("返信待ち") } footer: { Text("約3秒ごとのソナー音が、読み上げ開始と同時に止まります。ホットスタンバイではモデルと参照音声を先に準備します。") }.disabled(!model.canConfigure)
+            Section {
+                NumberSetting(title: "返信の監視間隔", unit: "ms", value: $model.settings.replyPollMilliseconds)
+                NumberSetting(title: "本文更新が止まってから待つ時間", unit: "秒", value: $model.settings.replySettleSeconds)
+                NumberSetting(title: "返信の待ち時間", unit: "秒", value: $model.settings.replyTimeoutSeconds)
+                DisclosureGroup("返信の判定条件") {
+                    Toggle("送信へのスレッド返信だけを読む", isOn: $model.settings.requireThreadedReply)
+                    TextSetting(title: "途中表示の先頭フレーズ（1行ずつ）", text: $model.settings.busyPatterns)
+                }
+            } header: { Text("返信の確認") } footer: { Text("監視は100〜30,000ms、更新停止は2〜60秒、返信の待ち時間は30〜900秒。期限後は再送せず、次の合言葉の待受へ戻ります。最終回答の判定は更新停止に基づく推定です。") }.disabled(!model.canConfigure)
+        }.formStyle(.grouped).disabled(!model.canConfigure && !model.referenceRecording)
+    }
+}

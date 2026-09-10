@@ -6,14 +6,20 @@ extension AppModel {
     func checkLocal() async {
         guard canConfigure else { return }
         let run = epoch
-        busy = true; defer { busy = false }
+        busy = true
+        defer { busy = false }
         do {
             let result = try await worker.call(WorkerRequest.diagnose(settings: settings), python: settings.pythonPath)
             guard run == epoch else { return }
             diagnostics = result["summary"] as? String ?? "ローカル環境を確認しました。"
             detail = diagnostics
             logs.record(.environmentReady)
-        } catch { if run == epoch { diagnostics = error.localizedDescription; fail(error) } }
+        } catch {
+            if run == epoch {
+                diagnostics = error.localizedDescription
+                fail(error)
+            }
+        }
     }
     func prepareTextTest() {
         guard canConfigure else { return }
@@ -35,7 +41,9 @@ extension AppModel {
                 self.logs.record(.speechSubdivided, category: .speech, metrics: [.count: Double(count)])
             }, onProgress: recordSpeechProgress) { self.logs.record(.speechStarted, category: .speech) }
             logs.record(.speechCompleted, category: .speech)
-            guard run == epoch else { return }; phase = .stopped; detail = "読み上げが終わりました。発音と声質を確認してください。"
+            guard run == epoch else { return }
+            phase = .stopped
+            detail = "読み上げが終わりました。発音と声質を確認してください。"
         }
     }
     func recordSpeechProgress(_ progress: SpeechLineProgress) {
@@ -48,7 +56,8 @@ extension AppModel {
     func testMicrophone() {
         guard canConfigure else { return }
         stop()
-        phase = .preparing; detail = "許可済みのマイクをテストします。Webexへは送信しません。"
+        phase = .preparing
+        detail = "許可済みのマイクをテストします。Webexへは送信しません。"
         launch { [self] run in
             defer { if run == epoch { microphoneTestProgress = nil } }
             try Permissions.requireMicrophone()
@@ -63,21 +72,25 @@ extension AppModel {
                 self.fail(RelayError.message("テスト中にマイクの音声形式が変わりました。入力デバイスが安定してから、もう一度テストしてください。"))
             } }
             recorder.onError = { [weak self] message in Task { @MainActor in
-                guard let self, self.epoch == run else { return }; self.fail(RelayError.message(message))
+                guard let self, self.epoch == run else { return }
+                self.fail(RelayError.message(message))
             } }
             recorder.onLevel = { [weak self] value in Task { @MainActor in
                 guard let self, self.epoch == run, self.phase == .recording else { return }
-                self.level = value; peak = max(peak, value)
+                self.level = value
+                peak = max(peak, value)
             } }
             try await recorder.start(silenceSeconds: settings.silenceSeconds, minimumRMS: settings.minimumRMS,
                                      voiceProcessing: settings.voiceProcessing, diagnostic: true)
-            phase = .recording; detail = "5秒間のテスト録音中です。合言葉と短い指示を話してください。送信はしません。"
+            phase = .recording
+            detail = "5秒間のテスト録音中です。合言葉と短い指示を話してください。送信はしません。"
             microphoneTestProgress = 0
             for step in 0..<50 {
                 try await Task.sleep(nanoseconds: 100_000_000)
                 microphoneTestProgress = Double(step + 1) / 50
             }
-            let samples = recorder.finishDiagnostic(); level = 0
+            let samples = recorder.finishDiagnostic()
+            level = 0
             guard run == epoch else { return }
             logs.record(.microphoneSampled, category: .audio, metrics: [.seconds: Double(samples.count) / 16000,
                 .level: Double(peak), .sampleRate: recorder.inputFormat.rate, .channels: recorder.inputFormat.channels])
@@ -88,7 +101,8 @@ extension AppModel {
                 throw RelayError.message("音声フレームは届いていますが、入力音量がゼロです。macOSのサウンド設定で内蔵マイクの入力音量を確認してください。")
             }
             try AudioRecorder.write(samples, to: file)
-            phase = .recognizing; audioStatus = String(format: "5秒録音の入力レベル最大: %.0f%%（待受と同じ録音経路）", peak * 100)
+            phase = .recognizing
+            audioStatus = String(format: "5秒録音の入力レベル最大: %.0f%%（待受と同じ録音経路）", peak * 100)
             let result = try await worker.call(WorkerRequest.transcribe(audio: file.path, settings: settings, verifyInline: true), python: settings.pythonPath)
             guard run == epoch else { return }
             updateSpeakerDiagnostics(result)

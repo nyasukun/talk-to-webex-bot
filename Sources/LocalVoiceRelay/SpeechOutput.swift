@@ -19,7 +19,8 @@ import RelayCore
     func speak(_ text: String, settings: Settings, worker: LocalWorker,
                onSplit: (Int) -> Void = { _ in },
                onProgress: (SpeechLineProgress) -> Void = { _ in }, onStart: () -> Void = {}) async throws {
-        let run = UUID(); generation = run
+        let run = UUID()
+        generation = run
         cancelled = false
         if settings.ttsEngine == "system" {
             try await speakWithSystemVoice(text, settings: settings, onStart: onStart)
@@ -36,7 +37,8 @@ import RelayCore
         defer { try? FileManager.default.removeItem(at: source) }
         try Data(text.utf8).write(to: source)
         let process = OfflineProcess.sandboxed(["/usr/bin/say", "-v", Self.name(voice), "-f", source.path])
-        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         self.process = process
         try process.run()
         defer {
@@ -86,5 +88,11 @@ import RelayCore
             if generation == run { playback.stop() }
         })
     }
-    func stop() { generation = UUID(); cancelled = true; process?.terminate(); process = nil; playback.stop() }
+    func stop() {
+        generation = UUID()
+        cancelled = true
+        process?.terminate()
+        process = nil
+        playback.stop()
+    }
 }

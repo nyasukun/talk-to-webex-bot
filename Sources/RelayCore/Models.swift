@@ -6,7 +6,10 @@ public struct Room: Codable, Identifiable, Equatable, Sendable {
     public let type: String
     public let lastActivity: String?
     public init(id: String, title: String, type: String = "direct", lastActivity: String? = nil) {
-        self.id = id; self.title = title; self.type = type; self.lastActivity = lastActivity
+        self.id = id
+        self.title = title
+        self.type = type
+        self.lastActivity = lastActivity
     }
     public static func filtered(_ rooms: [Room], query: String) -> [Room] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -28,7 +31,10 @@ public func parseDate(_ value: String?) -> Date? {
     return formatter.date(from: value)
 }
 
-public struct Person: Codable, Sendable { public let id: String; public let displayName: String? }
+public struct Person: Codable, Sendable {
+    public let id: String
+    public let displayName: String?
+}
 public struct Message: Codable, Identifiable, Sendable {
     public let id: String
     public let roomId: String
@@ -49,8 +55,14 @@ public struct Message: Codable, Identifiable, Sendable {
     }
     public init(id: String, roomId: String, personId: String? = nil, text: String? = nil,
                 markdown: String? = nil, created: String? = nil, updated: String? = nil, parentId: String? = nil) {
-        self.id = id; self.roomId = roomId; self.personId = personId; self.text = text
-        self.markdown = markdown; self.created = created; self.updated = updated; self.parentId = parentId
+        self.id = id
+        self.roomId = roomId
+        self.personId = personId
+        self.text = text
+        self.markdown = markdown
+        self.created = created
+        self.updated = updated
+        self.parentId = parentId
     }
 }
 

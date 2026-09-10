@@ -4,7 +4,10 @@ import RelayCore
 
 struct PermissionSnapshot: Equatable {
     enum Microphone: String {
-        case allowed = "許可済み", undecided = "未設定", denied = "未許可", restricted = "制限あり"
+        case allowed = "許可済み"
+        case undecided = "未設定"
+        case denied = "未許可"
+        case restricted = "制限あり"
     }
     let microphone: Microphone
     let screen: Bool

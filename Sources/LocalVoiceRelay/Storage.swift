@@ -98,7 +98,8 @@ struct TokenStore {
         try await perform(interactive: false) { try readItem(interactive: false, using: operations) }
     }
     private static func readItem(interactive: Bool, using operations: TokenKeychainOperations) throws -> String? {
-        var query = query; query[kSecReturnData as String] = true
+        var query = query
+        query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         let (status, data) = operations.copy(query)
         if status == errSecItemNotFound { return nil }
@@ -120,7 +121,8 @@ struct TokenStore {
         let data = Data(value.utf8)
         let status = operations.update(query, [kSecValueData as String: data])
         if status == errSecItemNotFound {
-            var query = query; query[kSecValueData as String] = data
+            var query = query
+            query[kSecValueData as String] = data
             // The default ACL of a new item trusts only its creating application.
             let added = operations.add(query)
             guard added == errSecSuccess else { throw RelayError.message("キーチェーンに保存できません（\(added)）。") }

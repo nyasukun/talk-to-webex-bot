@@ -25,9 +25,11 @@ import RelayCore
         let parts = try Self.playbackBuffers(buffer)
         if engine == nil {
             let engine = makeEngine(), node = AVAudioPlayerNode()
-            engine.attach(node); engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
+            engine.attach(node)
+            engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
             try engine.start()
-            self.engine = engine; self.node = node
+            self.engine = engine
+            self.node = node
         }
         guard node?.outputFormat(forBus: 0) == buffer.format else {
             throw RelayError.message("音声生成中に再生形式が変わりました。")
@@ -53,7 +55,9 @@ import RelayCore
     }
     func start(onStart: () -> Void) {
         guard !started, queuedLines > 0 else { return }
-        started = true; onStart(); node?.play()
+        started = true
+        onStart()
+        node?.play()
     }
     static func playbackBuffers(_ source: AVAudioPCMBuffer) throws -> [AVAudioPCMBuffer] {
         guard source.frameLength > 0, let sourceChannels = source.floatChannelData, !source.format.isInterleaved else {
@@ -72,8 +76,14 @@ import RelayCore
         }
     }
     func stop() {
-        generation = UUID(); node?.stop(); engine?.stop(); node = nil; engine = nil
-        queuedSeconds = 0; queuedLines = 0; started = false
+        generation = UUID()
+        node?.stop()
+        engine?.stop()
+        node = nil
+        engine = nil
+        queuedSeconds = 0
+        queuedLines = 0
+        started = false
     }
     func waitUntilBuffered(atMost seconds: Double, lines: Int = 0) async throws {
         let run = generation

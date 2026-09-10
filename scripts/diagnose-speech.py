@@ -2,7 +2,6 @@
 """Offline speech QA. Input, audio, and transcripts must stay outside the repository."""
 import argparse
 import contextlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -32,9 +31,9 @@ if output == root or root in output.parents:
 os.umask(0o077)
 output.mkdir(parents=True, exist_ok=True, mode=0o700)
 os.environ['NUMBA_CACHE_DIR'] = str(output / 'numba')
-spec = importlib.util.spec_from_file_location('relay_worker', root / 'worker/relay_worker.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+sys.path.insert(0, str(root / 'worker'))
+import relay_speech
+import relay_worker as module
 if args.raw_reference or args.clean_reference:
     module.clean_voice_reference = lambda audio, rate: audio
 import numpy as np
@@ -42,7 +41,7 @@ import soundfile as sf
 import mlx.core as mx
 settings = json.loads((Path.home() / 'Library/Application Support/LocalVoiceRelay/settings.json').read_text())
 if args.max_characters:
-    module.SPEECH_MAX_LINE_CHARACTERS = args.max_characters
+    relay_speech.SPEECH_MAX_LINE_CHARACTERS = args.max_characters
 text = args.input.read_text()
 plan = list(module.speech_plan(text))
 records_path = output / 'records.json'

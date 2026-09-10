@@ -56,7 +56,11 @@ public enum MessageTemplate {
             case "/screen":
                 guard inScreen else { throw RelayError.message("screen条件の開始がありません。") }
                 inScreen = false
-            case "transcript": if !inScreen || screen { output += transcript; renderedTranscript = true }
+            case "transcript":
+                if !inScreen || screen {
+                    output += transcript
+                    renderedTranscript = true
+                }
             case "ocr": if screen { output += ocr ?? "" }
             default: throw RelayError.message("未対応のテンプレート変数です: \(token)")
             }

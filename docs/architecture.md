@@ -12,12 +12,12 @@
 | `AppModel.swift` | 状態と中核の進行管理（待受・認識・送信・返信監視・停止）。処理の世代 `epoch` を更新するのはこのファイルだけで、非同期処理は `launch` を通して開始する。 |
 | `AppModelWebex.swift` / `AppModelDiagnostics.swift` / `AppModelReference.swift` / `AppModelPresentation.swift` | `AppModel` の拡張。順に、認証とDM検索、診断とテスト、参照音声の録音と取込、画面向けの派生状態と設定準備の案内。 |
 | `WorkerRequest.swift` / `SettingsSpeakerMode.swift` / `ReferenceKind.swift` | workerへ送るJSONの組立、話者判定の設定述語、参照音声の種別。キー名はworkerのプロトコルと一致させる。 |
-| `ContentView.swift` / `SettingsViews.swift` / `SupportViews.swift` / `IssueReportView.swift` | 画面。`scripts/render-ui.sh` は `LocalVoiceRelayApp.swift` 以外の全ファイルを描画確認用にコンパイルする。 |
+| `Views/` | 画面。ビューごとにファイルを分け、画面の一覧は `AppSection.swift`、共通の部品は `SettingsControls.swift` と `ViewStyles.swift`。`scripts/render-ui.sh` は `LocalVoiceRelayApp.swift` 以外の全ファイルを描画確認用にコンパイルする。 |
 | `AudioRecorder.swift` / `SpeechOutput.swift` / `SpeechPipeline.swift` / `StreamingPlayback.swift` / `WaitingSound.swift` | マイク入力の区切り、標準音声とQwenの読み上げ、生成と再生の並行、ソナー音。 |
 | `PrivateFiles.swift` / `Storage.swift` | 上限付きのファイル読込、0600での一時書込と原子的な置換、設定とキーチェーン。既存の署名・保存先の互換性を維持。 |
 | `LocalWorker.swift` / `WorkerResponseReader.swift` | 直列のworker呼び出しと、最大1 MBのJSON Lines応答の組立。改行のない途中応答を受け付けない。 |
 | `OfflineProcess.swift` | workerと標準読み上げのネットワーク禁止・環境変数の許可リスト。子プロセスは `OfflineProcess.sandboxed` で生成する。 |
-| `worker/relay_worker.py` | ローカル音声推論。単一ファイルのまま.appへ同梱する。アプリが定義したエラーだけを利用者へ返し、依存ライブラリの例外本文を返さない。 |
+| `worker/relay_worker.py` / `relay_speech.py` / `relay_recognition.py` / `relay_common.py` | ローカル音声推論。順に、JSON Linesの受け答えとWorker本体、読み上げ本文の分割と音声生成の検査、文字起こしの信頼度と話者判定、共通のエラーとパス検査。`scripts/build.sh` が `worker/relay_*.py` を.appへ同梱する。アプリが定義したエラーだけを利用者へ返し、依存ライブラリの例外本文を返さない。 |
 | `DiagnosticLog.swift` / `IssueReport.swift` | 既知イベントと数値の診断、共有可能な項目だけで構成する報告下書き。 |
 | `Tests/` / `worker/tests` | RelayCoreの純粋ロジック、アプリ側の堅牢性、workerのプロトコルと音声処理の回帰テスト。入口は `scripts/test.sh`。 |
 

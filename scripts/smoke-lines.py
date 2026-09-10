@@ -2,7 +2,6 @@
 """Offline line-generation check. Audio stays in a temporary directory and is never played."""
 import argparse
 import contextlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,9 +17,8 @@ parser.add_argument('--inspect-lines', default='', help='Comma-separated line nu
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 data = Path.home() / 'Library/Application Support/LocalVoiceRelay'
-spec = importlib.util.spec_from_file_location('relay_worker', root / 'worker/relay_worker.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+sys.path.insert(0, str(root / 'worker'))
+import relay_worker as module
 text = args.input.read_text() if args.input else '\n\n'.join([
     '承知しました。',
     '音声読み上げを確認するため、少し長い文章を順番にお届けします。',

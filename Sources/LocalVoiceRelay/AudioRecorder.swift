@@ -3,7 +3,10 @@ import Foundation
 import RelayCore
 
 final class AudioRecorder: @unchecked Sendable {
-    struct Chunk: Sendable { let samples: [Float]; let truncated: Bool }
+    struct Chunk: Sendable {
+        let samples: [Float]
+        let truncated: Bool
+    }
     private var engine = AVAudioEngine()
     private var configurationObserver: NSObjectProtocol?
     @MainActor private(set) var isCapturing = false
@@ -37,8 +40,13 @@ final class AudioRecorder: @unchecked Sendable {
             var supplied = false
             var conversionError: NSError?
             converter.convert(to: converted, error: &conversionError) { _, status in
-                if supplied { status.pointee = .noDataNow; return nil }
-                supplied = true; status.pointee = .haveData; return buffer
+                if supplied {
+                    status.pointee = .noDataNow
+                    return nil
+                }
+                supplied = true
+                status.pointee = .haveData
+                return buffer
             }
             guard conversionError == nil, let channel = converted.floatChannelData?[0] else {
                 self.queue.async {
@@ -60,25 +68,37 @@ final class AudioRecorder: @unchecked Sendable {
                 }
                 let isVoiced = rms >= Float(minimumRMS)
                 if self.samples.isEmpty {
-                    if isVoiced { self.samples = self.preRoll; self.voiced = 0 }
+                    if isVoiced {
+                        self.samples = self.preRoll
+                        self.voiced = 0
+                    }
                     else {
                         self.preRoll += floats
-                        self.preRoll = Array(self.preRoll.suffix(8000)); return
+                        self.preRoll = Array(self.preRoll.suffix(8000))
+                        return
                     }
                 }
                 self.samples += floats
-                if isVoiced { self.silence = 0; self.voiced += floats.count }
+                if isVoiced {
+                    self.silence = 0
+                    self.voiced += floats.count
+                }
                 else { self.silence += floats.count }
                 let truncated = self.samples.count >= 25 * 16000
                 if self.silence >= Int(silenceSeconds * 16000) || truncated {
                     if self.voiced >= 4000 { self.onChunk?(Chunk(samples: self.samples, truncated: truncated)) }
-                    self.samples = []; self.preRoll = []; self.voiced = 0; self.silence = 0
+                    self.samples = []
+                    self.preRoll = []
+                    self.voiced = 0
+                    self.silence = 0
                 }
             }
         }
         tapInstalled = true
         do {
-            engine.prepare(); try engine.start(); isCapturing = true
+            engine.prepare()
+            try engine.start()
+            isCapturing = true
             configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
                 // The engine must not be torn down synchronously on its internal notification queue.
                 Task { @MainActor in
@@ -87,14 +107,31 @@ final class AudioRecorder: @unchecked Sendable {
                 }
             }
         }
-        catch { input.removeTap(onBus: 0); tapInstalled = false; throw error }
+        catch {
+            input.removeTap(onBus: 0)
+            tapInstalled = false
+            throw error
+        }
     }
     @MainActor func stop() {
         isCapturing = false
-        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver); self.configurationObserver = nil }
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+            self.configurationObserver = nil
+        }
         engine.stop()
-        if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
-        queue.sync { generation += 1; samples = []; preRoll = []; silence = 0; voiced = 0; reportedConversionError = false }
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        queue.sync {
+            generation += 1
+            samples = []
+            preRoll = []
+            silence = 0
+            voiced = 0
+            reportedConversionError = false
+        }
     }
     @MainActor func finishDiagnostic() -> [Float] {
         engine.stop()
@@ -125,8 +162,13 @@ final class AudioRecorder: @unchecked Sendable {
         try file.read(into: input)
         var supplied = false, error: NSError?
         converter.convert(to: output, error: &error) { _, status in
-            if supplied { status.pointee = .endOfStream; return nil }
-            supplied = true; status.pointee = .haveData; return input
+            if supplied {
+                status.pointee = .endOfStream
+                return nil
+            }
+            supplied = true
+            status.pointee = .haveData
+            return input
         }
         guard error == nil, output.frameLength > 0 else { throw RelayError.message("参照音声をWAVに変換できません。") }
         let destination = try AVAudioFile(forWriting: target, settings: [AVFormatIDKey: kAudioFormatLinearPCM,

@@ -21,7 +21,8 @@ import Foundation
             guard let line else { break }
             try enqueue(line)
             if !started {
-                start(); started = true
+                start()
+                started = true
             }
         }
         if started { try await finish() }
@@ -42,11 +43,13 @@ struct PlaybackProgress {
     private var lastProgress: ContinuousClock.Instant
 
     init(remainingSeconds: Double, now: ContinuousClock.Instant = .now) {
-        self.remainingSeconds = remainingSeconds; self.lastProgress = now
+        self.remainingSeconds = remainingSeconds
+        self.lastProgress = now
     }
     mutating func stalled(remainingSeconds: Double, now: ContinuousClock.Instant = .now) -> Bool {
         if remainingSeconds < self.remainingSeconds {
-            self.remainingSeconds = remainingSeconds; lastProgress = now
+            self.remainingSeconds = remainingSeconds
+            lastProgress = now
         }
         return now >= lastProgress.advanced(by: .seconds(30))
     }

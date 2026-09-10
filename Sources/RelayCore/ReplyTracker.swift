@@ -20,8 +20,12 @@ public struct ReplyTracker {
 
     public init(request: Message, ownPersonID: String, baseline: Set<String>, settleSeconds: TimeInterval,
                 busyPhrases: [String], requireThreaded: Bool = false) {
-        self.request = request; self.ownPersonID = ownPersonID; self.baseline = baseline
-        self.settleSeconds = settleSeconds; self.busyPhrases = busyPhrases; self.requireThreaded = requireThreaded
+        self.request = request
+        self.ownPersonID = ownPersonID
+        self.baseline = baseline
+        self.settleSeconds = settleSeconds
+        self.busyPhrases = busyPhrases
+        self.requireThreaded = requireThreaded
     }
     private func normalized(_ text: String) -> String {
         text.lowercased().filter { !$0.isWhitespace && !$0.isPunctuation && !$0.isSymbol }
@@ -50,10 +54,14 @@ public struct ReplyTracker {
                 return !busy.isEmpty && key.hasPrefix(busy)
             })
             if isBusy { busyIDs.insert(message.id) }
-            guard !key.isEmpty, !isBusy else { observed.removeValue(forKey: message.id); continue }
+            guard !key.isEmpty, !isBusy else {
+                observed.removeValue(forKey: message.id)
+                continue
+            }
             let previous = observed[message.id]
             if previous?.body != body || previous?.revision != message.updated {
-                observed[message.id] = (body, message.updated, now); continue
+                observed[message.id] = (body, message.updated, now)
+                continue
             }
             guard let previous, now.timeIntervalSince(previous.since) >= settleSeconds,
                   spoken.insert(spokenKey).inserted else { continue }
