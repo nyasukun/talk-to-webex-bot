@@ -81,6 +81,49 @@ private actor ContinuationTransport: HTTPTransport {
         #expect(model.phase == .confirming)
         #expect(model.draft?.body == "first\nsecond")
         #expect(await transport.sentBodies().isEmpty)
+        #expect(!model.acceptingContinuation)
+        #expect(model.voiceDelivery == nil && model.voiceSentIDs.isEmpty)
+        try await model.appendVoiceCommand("late", speech: interval(5, 6), run: model.epoch)
+        #expect(model.draft?.body == "first\nsecond")
+    }
+
+    @Test func continuationKeepsInitialSettingsWhenCurrentSettingsChange() async throws {
+        let transport = ContinuationTransport()
+        let model = model(transport)
+        defer { model.stop() }
+        model.lastReplyTarget = ThreadReplyTarget(message: Message(id: "reply", roomId: "room", text: "answer", parentId: "root"))
+        try await model.prepareVoiceCommand("first", mode: .threadReply, speech: interval(0, 1), run: model.epoch)
+        model.settings.roomID = "changed-room"
+        model.settings.template = "changed: {{transcript}}"
+        model.settings.replyTemplate = "changed reply: {{transcript}}"
+        model.settings.confirmBeforeSending = true
+        model.settings.readReplies = false
+        model.settings.continuationSeconds = 0.1
+        #expect(model.lastReplyTarget == nil)
+        try await model.appendVoiceCommand("second", speech: interval(3, 4), run: model.epoch)
+        let bodies = await transport.sentBodies()
+        #expect(bodies.count == 2)
+        #expect(bodies.last?["text"] == "first\nsecond")
+        #expect(bodies.allSatisfy { $0["roomId"] == "room" && $0["parentId"] == "root" })
+        #expect(model.voiceDelivery?.settings.readReplies == true)
+    }
+
+    @Test func cancelledConfirmationDoesNotLeakIntoTheNextVoiceInteraction() async throws {
+        let transport = ContinuationTransport()
+        let model = model(transport)
+        model.settings.confirmBeforeSending = true
+        defer { model.stop() }
+        try await model.prepareVoiceCommand("discarded", mode: .message, speech: interval(0, 1), run: model.epoch)
+        try await model.finishVoiceInput(run: model.epoch)
+        model.cancelDraft()
+        #expect(model.draft == nil)
+        #expect(!model.acceptingContinuation)
+        model.settings.confirmBeforeSending = false
+        try await model.prepareVoiceCommand("fresh", mode: .message, speech: interval(10, 11), run: model.epoch)
+        try await model.appendVoiceCommand("addition", speech: interval(13, 14), run: model.epoch)
+        let bodies = await transport.sentBodies()
+        #expect(bodies.map { $0["text"]! } == ["fresh", "fresh\naddition"])
+        #expect(model.voiceSentIDs == ["sent-1", "sent-2"])
     }
 
     @Test func threadContinuationKeepsTheOriginalThreadAndUsesOnlyNewSpeech() async throws {

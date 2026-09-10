@@ -9,7 +9,9 @@
 | 場所 | 責務 |
 | --- | --- |
 | `Sources/RelayCore` | 設定と移行、テンプレート、合言葉、返信判定、Webex通信、話者診断の整形（`SpeakerDiagnostics.swift`）。UIやキーチェーンに依存しないロジック。 |
-| `AppModel.swift` | 状態と中核の進行管理（待受・認識・送信・返信監視・停止）。処理の世代 `epoch` を更新するのはこのファイルだけで、非同期処理は `launch` を通して開始する。 |
+| `AppModel.swift` | 状態と中核の進行管理（設定・権限・待受・認識・停止）。処理の世代 `epoch` を更新するのはこのファイルだけで、非同期処理は `launch` を通して開始する。 |
+| `AppModelDelivery.swift` / `AppModelReplies.swift` | 送信準備・確認・追加発話の確定・Webex送信と、送信完了後の返信監視・読み上げ。停止後の結果は `epoch` で除外し、成否不明の送信は再試行しない。 |
+| `VoiceInteraction.swift` | 1回の音声指示に属する追加発話の期限・累積本文・最初の送信設定と画面・成功した送信履歴をまとめて保持する。本文の再構築に成功してから追加発話を反映し、停止・入力復旧・受付終了時には全体を破棄する。 |
 | `AppModelWebex.swift` / `AppModelDiagnostics.swift` / `AppModelReference.swift` / `AppModelPresentation.swift` | `AppModel` の拡張。順に、認証とDM検索、診断とテスト、参照音声の録音と取込、画面向けの派生状態と設定準備の案内。 |
 | `WorkerRequest.swift` / `SettingsSpeakerMode.swift` / `ReferenceKind.swift` | workerへ送るJSONの組立、話者判定の設定述語、参照音声の種別。キー名はworkerのプロトコルと一致させる。 |
 | `Views/` | 画面。ビューごとにファイルを分け、画面の一覧は `AppSection.swift`、共通の部品は `SettingsControls.swift` と `ViewStyles.swift`。`scripts/render-ui.sh` は `LocalVoiceRelayApp.swift` 以外の全ファイルを描画確認用にコンパイルする。 |

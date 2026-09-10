@@ -1,6 +1,6 @@
-// Core state machine: settings, permissions, listening, sending and reply monitoring.
-// Webex auth and DM search live in AppModelWebex.swift, diagnostics in AppModelDiagnostics.swift,
-// reference audio in AppModelReference.swift, derived view state in AppModelPresentation.swift.
+// Core state machine: settings, permissions, listening and cancellation.
+// Drafts and delivery live in AppModelDelivery.swift, reply monitoring in AppModelReplies.swift.
+// Other extensions handle Webex auth, diagnostics, reference audio and view presentation.
 // Only this file rotates the epoch (stop() and recoverInput()).
 import AppKit
 import AVFoundation
@@ -20,20 +20,6 @@ import RelayCore
         case speaking = "読み上げ"
         case error = "エラー"
         var title: String { L10n.key(rawValue) }
-    }
-    struct Draft: Identifiable {
-        let id = UUID()
-        let body: String
-        let screen: ScreenContext?
-        let settings: Settings
-        let thread: ThreadReplyTarget?
-        var screenOmitted: Bool { settings.includeScreen && screen == nil }
-    }
-    struct Delivery {
-        let client: WebexClient
-        let sent: Message
-        let baseline: [Message]
-        let settings: Settings
     }
     @Published var settings: Settings {
         didSet {
@@ -99,7 +85,7 @@ import RelayCore
     let recorder = AudioRecorder()
     let worker = LocalWorker()
     let speech = SpeechOutput()
-    private let waitingSound = WaitingSound()
+    let waitingSound = WaitingSound()
     private let standbyActivity = StandbyActivity()
     var referenceRecorder: AVAudioRecorder?
     private var lastMeterUpdate = Date.distantPast
@@ -113,12 +99,8 @@ import RelayCore
     private var wake = VoiceRouter()
     private var chunks: [AudioRecorder.Chunk] = []
     private var processing = false
-    private var continuation: UtteranceContinuation?
-    private var voiceDraft: Draft?
-    private(set) var voiceDelivery: Delivery?
-    private(set) var voiceSentIDs = Set<String>()
-    private var voiceInputClosed = false
-    var acceptingContinuation: Bool { continuation != nil && !voiceInputClosed }
+    var voiceInteraction: VoiceInteraction?
+    var acceptingContinuation: Bool { voiceInteraction?.acceptingInput == true }
     private var inputRevision = UUID()
     // Only stop() and recoverInput() in this file rotate the epoch; extensions may read it.
     private(set) var epoch = UUID()
@@ -334,7 +316,7 @@ import RelayCore
         armTimeout?.cancel()
         recorder.stop()
         worker.shutdown()
-        resetVoiceInteraction()
+        voiceInteraction = nil
         chunks = []
         processing = false
         wake.reset()
@@ -355,8 +337,8 @@ import RelayCore
         for chunk in recorder.takeChunks() { acceptAudioChunk(chunk) }
     }
     func acceptAudioChunk(_ chunk: AudioRecorder.Chunk) {
-        guard listening, !voiceInputClosed,
-              continuation != nil || [.listening, .recording, .recognizing].contains(phase) else { return }
+        guard listening, voiceInteraction?.acceptingInput != false,
+              voiceInteraction != nil || [.listening, .recording, .recognizing].contains(phase) else { return }
         guard !chunk.truncated else {
             discardInput(.utteranceDiscarded)
             return
@@ -374,7 +356,7 @@ import RelayCore
         // Keep the microphone running; invalidate in-flight recognition before accepting fresh audio.
         inputRevision = UUID()
         chunks = []
-        if continuation != nil { voiceInputClosed = true }
+        voiceInteraction?.closeInput()
         wake.reset()
         armTimeout?.cancel()
         indicator = .idle
@@ -390,8 +372,8 @@ import RelayCore
         defer { if run == epoch { processing = false } }
         while run == epoch, listening {
             if chunks.isEmpty {
-                guard let continuation else { return }
-                if !voiceInputClosed && continuation.shouldWait(now: Date(), pending: recorder.pendingSpeech) {
+                guard let voiceInteraction else { return }
+                if voiceInteraction.shouldWait(now: Date(), pending: recorder.pendingSpeech) {
                     do { try await Task.sleep(nanoseconds: 50_000_000) }
                     catch { return }
                     continue
@@ -401,7 +383,7 @@ import RelayCore
                 return
             }
             let chunk = chunks.removeFirst()
-            if let continuation, !continuation.accepts(chunk.speech) { continue }
+            if let voiceInteraction, !voiceInteraction.accepts(chunk.speech) { continue }
             let revision = inputRevision
             do {
                 phase = .recognizing
@@ -420,7 +402,7 @@ import RelayCore
                     phase = .listening
                     continue
                 }
-                if continuation != nil {
+                if voiceInteraction != nil {
                     if settings.verifiesSpeakerStrictly {
                         let checked = try await worker.call(WorkerRequest.verifySpeaker(audio: file.path, settings: settings), python: settings.pythonPath)
                         guard run == epoch, listening else { return }
@@ -484,242 +466,7 @@ import RelayCore
             }
         }
     }
-    func prepareVoiceCommand(_ command: String, mode: VoiceMode, speech: SpeechInterval, run: UUID) async throws {
-        guard run == epoch else { return }
-        continuation = UtteranceContinuation(text: command, speech: speech, seconds: settings.continuationSeconds)
-        transcript = command
-        try await prepare(command: command, run: run, forceConfirmation: false, mode: mode)
-    }
-    func appendVoiceCommand(_ text: String, speech: SpeechInterval, run: UUID) async throws {
-        guard run == epoch, !voiceInputClosed, var continued = continuation,
-              let previous = voiceDraft, continued.append(text, speech: speech) else { return }
-        // Reuse the first capture and destination, including the original thread reply target.
-        let body = try MessageTemplate.render(previous.settings.template, transcript: continued.text,
-                                              ocr: previous.screen?.ocr, screen: previous.screen != nil)
-        continuation = continued
-        transcript = continued.text
-        let draft = Draft(body: body, screen: previous.screen, settings: previous.settings, thread: previous.thread)
-        voiceDraft = draft
-        if !draft.settings.confirmBeforeSending { try await send(draft, run: run) }
-        guard run == epoch else { return }
-        showContinuationStatus()
-    }
-    private func showContinuationStatus() {
-        phase = .listening
-        indicator = voiceDelivery == nil ? .receiving : .sent
-        detail = L10n.text("続きの発話を受け付けています。最後に声が出てから設定した無音時間で確定します。")
-    }
-    private func resetVoiceInteraction() {
-        continuation = nil
-        voiceDraft = nil
-        voiceDelivery = nil
-        voiceSentIDs = []
-        voiceInputClosed = false
-    }
-    func finishVoiceInput(run: UUID) async throws {
-        guard run == epoch else { return }
-        voiceInputClosed = true
-        recorder.stop()
-        level = 0
-        let prepared = voiceDraft, delivery = voiceDelivery, sentIDs = voiceSentIDs
-        resetVoiceInteraction()
-        phase = .waiting
-        if let prepared, prepared.settings.confirmBeforeSending {
-            presentDraft(prepared)
-            return
-        }
-        if let delivery, delivery.settings.readReplies {
-            try await monitor(client: delivery.client, sent: delivery.sent, baseline: delivery.baseline,
-                              settings: delivery.settings, run: run, supersededRequestIDs: sentIDs.subtracting([delivery.sent.id]))
-        }
-        guard run == epoch else { return }
-        try await resumeAfterInteraction(run: run)
-    }
-    func prepare(command: String, run: UUID, forceConfirmation: Bool, mode: VoiceMode = .message) async throws {
-        phase = .preparing
-        detail = L10n.text("送信内容を準備しています。")
-        var snapshot = settings
-        let target: ThreadReplyTarget?
-        if mode == .threadReply {
-            guard let previous = lastReplyTarget else { throw RelayError.message(L10n.text("返信先がありません。このアプリで相手の返信を受け取ってから、返信用の合言葉を話してください。")) }
-            try previous.require(roomID: snapshot.roomID)
-            target = previous
-            snapshot.template = snapshot.replyTemplate
-            snapshot.includeScreen = false
-        } else { target = nil }
-        if snapshot.includeScreen { try Permissions.requireScreen() }
-        let screen = try await ScreenAttachment.captureIfAvailable(enabled: snapshot.includeScreen)
-        guard run == epoch else { return }
-        if screen != nil { logs.record(.screenCaptured, category: .permissions) }
-        else if snapshot.includeScreen { logs.record(.screenOmitted, category: .permissions) }
-        let body = try MessageTemplate.render(snapshot.template, transcript: command, ocr: screen?.ocr, screen: screen != nil)
-        let draft = Draft(body: body, screen: screen, settings: snapshot, thread: target)
-        if continuation != nil {
-            voiceDraft = draft
-            if !snapshot.confirmBeforeSending { try await send(draft, run: run) }
-            guard run == epoch else { return }
-            showContinuationStatus()
-            return
-        }
-        if snapshot.confirmBeforeSending || forceConfirmation {
-            presentDraft(draft)
-        } else { try await send(draft, run: run) }
-    }
-    private func presentDraft(_ draft: Draft) {
-        self.draft = draft
-        phase = .confirming
-        detail = L10n.text("本文・画像・宛先を確認してください。")
-        showMainWindow?()
-        if !isPreview { NSApp.activate(ignoringOtherApps: true) }
-    }
-    func confirmDraft() {
-        guard let draft, phase == .confirming else { return }
-        self.draft = nil
-        launch { [self] run in try await send(draft, run: run) }
-    }
-    func cancelDraft() {
-        draft = nil
-        stop()
-        detail = L10n.text("送信を取り消しました。")
-    }
-    private func send(_ draft: Draft, run: UUID) async throws {
-        let client = try await connection(), snapshot = draft.settings
-        guard run == epoch else { return }
-        replyMonitoringStatus = snapshot.readReplies ? L10n.text("送信後に返信を監視します。") : L10n.text("返信の読み上げはOFFです。監視しません。")
-        logs.record(.sendStarted, category: .webex)
-        phase = .sending
-        detail = L10n.text("Webexへ送信しています。")
-        // Every send has a fresh identity check. Never infer validity from local save time.
-        let person = try await client.me()
-        guard run == epoch else { return }
-        ownID = person.id
-        let baseline = snapshot.readReplies ? try await client.messages(roomID: snapshot.roomID) : []
-        guard run == epoch else { return }
-        let sent = try await client.send(roomID: snapshot.roomID, text: draft.body, png: draft.screen?.png, parentID: draft.thread?.parentID)
-        guard run == epoch else { return }
-        indicator = .sent
-        if draft.thread == nil { lastReplyTarget = nil }
-        logs.record(.sendCompleted, category: .webex)
-        detail = L10n.text("送信しました。")
-        if continuation != nil {
-            voiceSentIDs.insert(sent.id)
-            voiceDelivery = Delivery(client: client, sent: sent, baseline: baseline, settings: snapshot)
-            replyMonitoringStatus = snapshot.readReplies ? L10n.text("追加発話の受付後、最後に送ったメッセージの返信だけを監視します。") : L10n.text("返信の読み上げはOFFです。監視しません。")
-            return
-        }
-        if snapshot.readReplies {
-            try await monitor(client: client, sent: sent, baseline: baseline, settings: snapshot, run: run)
-        }
-        guard run == epoch else { return }
-        try await resumeAfterInteraction(run: run)
-    }
-    private func monitor(client: WebexClient, sent: Message, baseline: [Message], settings: Settings, run: UUID, supersededRequestIDs: Set<String> = []) async throws {
-        guard supersededRequestIDs.isEmpty || sent.parentId == nil else {
-            replyMonitoringStatus = L10n.text("同じスレッド内で再送したため、最後の送信への返信を特定できません。Webexで返信を確認してください。")
-            logs.record(.replyCorrelationUnavailable, category: .webex, level: .warning)
-            return
-        }
-        guard let sentAt = parseDate(sent.created) else { throw RelayError.message(L10n.text("送信は完了しましたが、返信を照合する送信時刻がありません。Webexで確認してください。")) }
-        if settings.waitingSound {
-            do { try waitingSound.start(volume: settings.waitingSoundVolume) }
-            catch {
-                diagnostics = L10n.text("ソナー音を再生できません。返信監視は続けます。")
-                logs.record(.sonarFailed, category: .speech, level: .warning)
-            }
-        }
-        voiceStandbyStatus = settings.ttsEngine == "system" ? L10n.text("音声待機: Mac標準音声") : L10n.text("音声待機: 返信後に準備")
-        let warmup: Task<Void, Error>? = settings.hotStandby && settings.ttsEngine == "qwen" ? Task {
-            logs.record(.speechWarming, category: .speech)
-            voiceStandbyStatus = L10n.text("音声待機: モデルと参照音声を準備中")
-            do {
-                try await speech.warmup(settings: settings, worker: worker)
-                guard run == epoch, !Task.isCancelled else { return }
-                logs.record(.speechReady, category: .speech)
-                voiceStandbyStatus = L10n.text("音声待機: 準備完了")
-            } catch {
-                if run == epoch { voiceStandbyStatus = L10n.text("音声待機: 準備できませんでした") }
-                throw error
-            }
-        } : nil
-        defer {
-            warmup?.cancel()
-            waitingSound.stop()
-        }
-        var tracker = ReplyTracker(request: sent, ownPersonID: ownID, baseline: Set(baseline.map(\.id)),
-                                   settleSeconds: settings.replySettleSeconds, busyPhrases: settings.busyPatterns.components(separatedBy: .newlines),
-                                   requireThreaded: settings.requireThreadedReply, supersededRequestIDs: supersededRequestIDs)
-        let deadline = Date().addingTimeInterval(settings.replyTimeoutSeconds)
-        var polls = 0
-        var failures = 0
-        var lastLog = Date.distantPast, lastUpdates = -1, lastCandidates = -1, lastBusy = -1
-        while Date() < deadline, run == epoch {
-            try Task.checkCancellation()
-            phase = .waiting
-            detail = L10n.text("返信の新着と本文更新を確認しています。")
-            do {
-                var messages = try await client.messages(roomID: sent.roomId, since: sentAt)
-                // Fetch known IDs directly even when they fall off the newest list page.
-                for id in tracker.candidateIDs {
-                    let current = try await client.message(id: id)
-                    messages.removeAll { $0.id == id }
-                    messages.append(current)
-                }
-                guard run == epoch else { return }
-                let ready = tracker.ingest(messages, now: Date())
-                polls += 1
-                replyMonitoringStatus = L10n.text("取得 \(polls)回 / 返信候補 \(tracker.candidateIDs.count)件 / 途中表示 \(tracker.busyMessageCount)件 / 同一IDの本文更新 \(tracker.bodyUpdateCount)回")
-                if !supersededRequestIDs.isEmpty {
-                    replyMonitoringStatus += L10n.text(" / 再送後は最後のメッセージに紐づく返信だけを読み上げます。")
-                }
-                if Date().timeIntervalSince(lastLog) >= 5 || lastUpdates != tracker.bodyUpdateCount || lastCandidates != tracker.candidateIDs.count || lastBusy != tracker.busyMessageCount || !ready.isEmpty {
-                    logs.record(.replyProgress, category: .webex, metrics: [.polls: Double(polls), .candidates: Double(tracker.candidateIDs.count), .busyMessages: Double(tracker.busyMessageCount), .updates: Double(tracker.bodyUpdateCount)])
-                    lastLog = Date()
-                    lastUpdates = tracker.bodyUpdateCount
-                    lastCandidates = tracker.candidateIDs.count
-                    lastBusy = tracker.busyMessageCount
-                }
-                if tracker.interruptedByOtherRequest { throw RelayError.message(L10n.text("同じDMに別の送信がありました。返信の取り違えを避けるため読み上げ監視を終了しました。")) }
-                if !ready.isEmpty {
-                    if let message = tracker.readyMessages.last { lastReplyTarget = ThreadReplyTarget(message: message) }
-                    reply = ready.joined(separator: "\n\n")
-                    phase = .speaking
-                    detail = L10n.text("返信を確認しました。最初の音声を準備しています。")
-                    let received = Date()
-                    try await warmup?.value
-                    guard run == epoch else { return }
-                    try await speech.speak(reply, settings: settings, worker: worker, onSplit: { count in
-                        logs.record(.speechSubdivided, category: .speech, metrics: [.count: Double(count)])
-                    }, onProgress: recordSpeechProgress) {
-                        waitingSound.stop()
-                        logs.record(.speechStarted, category: .speech, metrics: [.seconds: Date().timeIntervalSince(received)])
-                        detail = L10n.text("返信をローカル音声で読み上げています。")
-                        voiceStandbyStatus += String(format: L10n.text(" / 返信確定から再生開始 %.1f秒"), Date().timeIntervalSince(received))
-                    }
-                    logs.record(.speechCompleted, category: .speech)
-                    replyMonitoringStatus += L10n.text(" / 読み上げ完了")
-                    return
-                }
-                failures = 0
-            } catch RelayError.rateLimited(let delay) {
-                logs.record(.rateLimited, category: .webex, level: .warning, metrics: [.seconds: delay])
-                detail = L10n.text("API制限の解除を待っています。送信の再実行は行いません。")
-                let wait = min(delay, max(0, deadline.timeIntervalSinceNow))
-                try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
-            } catch let error as URLError {
-                logs.failure(error, category: .webex)
-                failures += 1
-                guard failures < 4 else { throw error }
-                detail = L10n.text("接続を再確認しています（返信の取得のみ）。")
-                try await Task.sleep(nanoseconds: UInt64(min(30, pow(2, Double(failures))) * 1_000_000_000))
-            }
-            try await Task.sleep(nanoseconds: UInt64(settings.replyPollSeconds * 1_000_000_000))
-        }
-        if run == epoch {
-            logs.record(.replyTimeout, category: .webex, level: .warning)
-            replyMonitoringStatus += L10n.text(" / 返信待ち終了（送信済み・再送なし・待受へ復帰）")
-        }
-    }
-    private func resumeAfterInteraction(run: UUID) async throws {
+    func resumeAfterInteraction(run: UUID) async throws {
         // No capture while speaking; clear all buffers and leave an acoustic tail gap.
         waitingSound.stop()
         speech.stop()
@@ -764,7 +511,7 @@ import RelayCore
         inputRevision = UUID()
         chunks = []
         wake.reset()
-        resetVoiceInteraction()
+        voiceInteraction = nil
         level = 0
         draft = nil
         phase = .stopped
