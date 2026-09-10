@@ -65,7 +65,7 @@ extension AppModel {
             let file = try PrivateStorage.temporaryFile(extension: "wav")
             defer { try? FileManager.default.removeItem(at: file) }
             var peak = Float(0)
-            recorder.onChunk = nil
+            recorder.onChunksReady = nil
             recorder.onConfigurationChange = { [weak self] in Task { @MainActor in
                 guard let self, run == self.epoch else { return }
                 self.logs.record(.inputInterrupted, category: .audio, level: .warning)

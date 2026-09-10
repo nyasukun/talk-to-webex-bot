@@ -23,7 +23,8 @@ struct NumberSetting: View {
         HStack {
             Text(title)
             Spacer()
-            TextField(title, value: $value, format: .number).multilineTextAlignment(.trailing).frame(width: 90)
+            TextField(title, value: $value, format: .number).labelsHidden().accessibilityLabel(title)
+                .multilineTextAlignment(.trailing).frame(width: 90)
             Text(unit).foregroundStyle(.secondary).frame(minWidth: 28, alignment: .leading)
         }
     }

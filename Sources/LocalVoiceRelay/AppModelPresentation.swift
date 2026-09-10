@@ -4,6 +4,7 @@ import RelayCore
 extension AppModel {
     var statusTitle: String {
         if listening, [.listening, .recording, .recognizing].contains(phase) {
+            if acceptingContinuation { return L10n.text("続きの発話を受け付けています") }
             return indicator == .receiving ? L10n.text("指示を受け付けています") : L10n.text("合言葉を待っています")
         }
         return phase.title

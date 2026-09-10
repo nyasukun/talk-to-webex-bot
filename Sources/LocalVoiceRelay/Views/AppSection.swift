@@ -40,7 +40,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .home: terms = L10n.text("開始 停止 待受 会話")
         case .webex: terms = L10n.text("API Key パスワード キーチェーン トークン 認証 DM 宛先")
-        case .input: terms = L10n.text("合言葉 マイク 話者 録音 常時 ロック スリープ")
+        case .input: terms = L10n.text("合言葉 マイク 話者 録音 常時 ロック スリープ 無音 追加発話")
         case .output: terms = L10n.text("TTS Qwen 声 再生 ソナー ポーリング 監視 タイムアウト")
         case .content: terms = L10n.text("スクショ 画像 OCR プロンプト テンプレート スレッド 確認")
         case .permissions: terms = L10n.text("許可 画面収録 マイク")

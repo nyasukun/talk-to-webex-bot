@@ -3,20 +3,27 @@ import Foundation
 import RelayCore
 
 final class AudioRecorder: @unchecked Sendable {
-    struct Chunk: Sendable {
-        let samples: [Float]
-        let truncated: Bool
-    }
+    typealias Chunk = AudioSegmenter.Chunk
     private var engine = AVAudioEngine()
     private var configurationObserver: NSObjectProtocol?
     @MainActor private(set) var isCapturing = false
     @MainActor private(set) var inputFormat = (rate: 0.0, channels: 0.0)
     private let queue = DispatchQueue(label: "org.localvoicerelay.audio")
-    private var samples: [Float] = [], preRoll: [Float] = []
-    private var silence = 0, voiced = 0
+    private var samples: [Float] = []
+    private var segmenter = AudioSegmenter()
+    private var completedChunks: [Chunk] = []
+    // Keep emitted audio visible until the main actor has consumed it, including at the deadline.
+    var pendingSpeech: SpeechInterval? { queue.sync { completedChunks.first?.speech ?? segmenter.pendingSpeech } }
+    func takeChunks() -> [Chunk] {
+        queue.sync {
+            let result = completedChunks
+            completedChunks = []
+            return result
+        }
+    }
     private var generation = 0
     private var tapInstalled = false
-    var onChunk: (@Sendable (Chunk) -> Void)?
+    var onChunksReady: (@Sendable () -> Void)?
     var onLevel: (@Sendable (Float) -> Void)?
     var onError: (@Sendable (String) -> Void)?
     var onConfigurationChange: (@Sendable () -> Void)?
@@ -57,6 +64,7 @@ final class AudioRecorder: @unchecked Sendable {
                 return
             }
             let floats = Array(UnsafeBufferPointer(start: channel, count: Int(converted.frameLength)))
+            let capturedAt = Date()
             self.queue.async {
                 guard self.generation == current, !floats.isEmpty else { return }
                 let rms = sqrt(floats.reduce(Float(0)) { $0 + $1 * $1 } / Float(floats.count))
@@ -66,31 +74,9 @@ final class AudioRecorder: @unchecked Sendable {
                     if remaining > 0 { self.samples += floats.prefix(remaining) }
                     return
                 }
-                let isVoiced = rms >= Float(minimumRMS)
-                if self.samples.isEmpty {
-                    if isVoiced {
-                        self.samples = self.preRoll
-                        self.voiced = 0
-                    }
-                    else {
-                        self.preRoll += floats
-                        self.preRoll = Array(self.preRoll.suffix(8000))
-                        return
-                    }
-                }
-                self.samples += floats
-                if isVoiced {
-                    self.silence = 0
-                    self.voiced += floats.count
-                }
-                else { self.silence += floats.count }
-                let truncated = self.samples.count >= 25 * 16000
-                if self.silence >= Int(silenceSeconds * 16000) || truncated {
-                    if self.voiced >= 4000 { self.onChunk?(Chunk(samples: self.samples, truncated: truncated)) }
-                    self.samples = []
-                    self.preRoll = []
-                    self.voiced = 0
-                    self.silence = 0
+                if let chunk = self.segmenter.ingest(floats, isVoiced: rms >= Float(minimumRMS), endingAt: capturedAt, silenceSeconds: silenceSeconds) {
+                    self.completedChunks.append(chunk)
+                    self.onChunksReady?()
                 }
             }
         }
@@ -127,9 +113,8 @@ final class AudioRecorder: @unchecked Sendable {
         queue.sync {
             generation += 1
             samples = []
-            preRoll = []
-            silence = 0
-            voiced = 0
+            segmenter = AudioSegmenter()
+            completedChunks = []
             reportedConversionError = false
         }
     }

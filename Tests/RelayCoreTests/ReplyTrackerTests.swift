@@ -67,4 +67,32 @@ final class ReplyTrackerTests {
         #expect(tracker.ingest([updated], now: now.addingTimeInterval(7)) == ["answer"])
         #expect(tracker.bodyUpdateCount == 0)
     }
+
+    @Test func resendsMonitorOnlyLatestRequestEvenWhenOlderRepliesArriveLater() {
+        let request = message("latest", "combined", sender: "self", created: timestamp)
+        var tracker = ReplyTracker(request: request, ownPersonID: "self", baseline: [], settleSeconds: 2,
+                                   busyPhrases: ["Working..."], supersededRequestIDs: ["first", "second"])
+        let messages = [message("first", "earlier", sender: "self", created: timestamp),
+                        message("old-answer", "old answer", parent: "first"),
+                        message("other-answer", "second answer", parent: "second"),
+                        message("unthreaded", "unknown answer"),
+                        message("latest-answer", "Working...", parent: "latest")]
+        let now = Date()
+        #expect(tracker.ingest(messages, now: now).isEmpty)
+        #expect(tracker.candidateIDs == ["latest-answer"])
+        #expect(!tracker.interruptedByOtherRequest)
+        let updated = messages.dropLast() + [message("latest-answer", "combined answer", parent: "latest")]
+        #expect(tracker.ingest(Array(updated), now: now.addingTimeInterval(3)).isEmpty)
+        #expect(tracker.ingest(Array(updated), now: now.addingTimeInterval(5)) == ["combined answer"])
+        #expect(tracker.ingest(Array(updated), now: now.addingTimeInterval(8)).isEmpty)
+    }
+
+    @Test func aSharedThreadRootDoesNotProveWhichResendWasAnswered() {
+        var tracker = ReplyTracker(request: message("latest", "q", sender: "self", created: timestamp, parent: "root"),
+                                   ownPersonID: "self", baseline: [], settleSeconds: 2, busyPhrases: [], supersededRequestIDs: ["earlier"])
+        let reply = message("reply", "potentially stale", parent: "root")
+        _ = tracker.ingest([reply], now: Date())
+        #expect(tracker.ingest([reply], now: Date().addingTimeInterval(3)).isEmpty)
+        #expect(tracker.candidateIDs.isEmpty)
+    }
 }

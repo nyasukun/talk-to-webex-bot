@@ -12,6 +12,10 @@ public enum SettingsCodec {
         }
         let speechInstructions = language == .japanese ? MessageTemplate.speechInstructions : MessageTemplate.englishSpeechInstructions
         let numberInstructions = language == .japanese ? MessageTemplate.numberInstructions : MessageTemplate.englishSpeechInstructions
+        if saved["continuationSeconds"] == nil, let silence = saved["silenceSeconds"] as? Double, silence >= 3.6 {
+            // Preserve a previously valid long segment silence while leaving room for continuation.
+            saved["continuationSeconds"] = silence + 0.1
+        }
         if saved["replyPollVersion"] == nil {
             if saved["replyPollSeconds"] as? Double == 2 { saved["replyPollSeconds"] = 0.1 }
             saved["replyPollVersion"] = 1

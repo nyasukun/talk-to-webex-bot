@@ -8,6 +8,7 @@ public struct ReplyTracker {
     public var settleSeconds: TimeInterval
     public var busyPhrases: [String]
     public var requireThreaded: Bool
+    public let supersededRequestIDs: Set<String>
     private var observed: [String: (body: String, revision: String?, since: Date)] = [:]
     private var spoken = Set<String>()
     private var lastBodies: [String: String] = [:]
@@ -19,13 +20,14 @@ public struct ReplyTracker {
     public private(set) var readyMessages: [Message] = []
 
     public init(request: Message, ownPersonID: String, baseline: Set<String>, settleSeconds: TimeInterval,
-                busyPhrases: [String], requireThreaded: Bool = false) {
+                busyPhrases: [String], requireThreaded: Bool = false, supersededRequestIDs: Set<String> = []) {
         self.request = request
         self.ownPersonID = ownPersonID
         self.baseline = baseline
         self.settleSeconds = settleSeconds
         self.busyPhrases = busyPhrases
         self.requireThreaded = requireThreaded
+        self.supersededRequestIDs = supersededRequestIDs
     }
     private func normalized(_ text: String) -> String {
         text.lowercased().filter { !$0.isWhitespace && !$0.isPunctuation && !$0.isSymbol }
@@ -34,7 +36,7 @@ public struct ReplyTracker {
         readyMessages = []
         guard let sent = parseDate(request.created) else { return [] }
         if messages.contains(where: { $0.roomId == request.roomId && $0.personId == ownPersonID &&
-            $0.id != request.id && !baseline.contains($0.id) && (parseDate($0.created) ?? .distantPast) >= sent }) {
+            $0.id != request.id && !supersededRequestIDs.contains($0.id) && !baseline.contains($0.id) && (parseDate($0.created) ?? .distantPast) >= sent }) {
             interruptedByOtherRequest = true
         }
         guard !interruptedByOtherRequest else { return [] }
@@ -44,6 +46,9 @@ public struct ReplyTracker {
                   let sender = message.personId, sender != ownPersonID, !baseline.contains(message.id),
                   let created = parseDate(message.created), created >= sent,
                   message.parentId == (request.parentId ?? request.id) || (request.parentId == nil && message.parentId == nil && !requireThreaded) else { continue }
+            // After resending accumulated speech, timestamps alone cannot distinguish a late answer
+            // to an earlier request. Shared thread roots likewise do not identify an individual send.
+            guard supersededRequestIDs.isEmpty || message.parentId == request.id else { continue }
             candidateIDs.insert(message.id)
             let body = message.body, key = normalized(message.body)
             if let previous = lastBodies[message.id], previous != body { bodyUpdateCount += 1 }

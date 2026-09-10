@@ -25,6 +25,7 @@ enum LogEvent: String, Codable {
     case inputInterrupted, inputRecovered, inputRecoveryFailed, microphoneSampled
     case utteranceDiscarded, inputBacklogDiscarded, commandWaitExpired
     case screenOmitted, speechSubdivided, speechLineReady, speechBufferWait
+    case replyCorrelationUnavailable
     var message: String {
         switch self {
         case .launched: return L10n.text("アプリを起動しました")
@@ -53,6 +54,7 @@ enum LogEvent: String, Codable {
         case .sendAmbiguous: return L10n.text("送信結果が不明です。再送せずWebexで確認してください")
         case .replyProgress: return L10n.text("返信の新着と同一IDの更新を確認しました")
         case .replyTimeout: return L10n.text("返信待ちを終了し、次の合言葉の待受へ戻ります。送信は繰り返しません")
+        case .replyCorrelationUnavailable: return L10n.text("同じスレッド内で再送したため、最後の送信への返信を特定できません。Webexで返信を確認してください。")
         case .utteranceDiscarded: return L10n.text("25秒に達した音声区間を破棄しました。常時待受は継続します")
         case .inputBacklogDiscarded: return L10n.text("処理が追いつかない音声を破棄しました。常時待受は継続します")
         case .commandWaitExpired: return L10n.text("指示の受付を区切りました。次の合言葉を待ちます")

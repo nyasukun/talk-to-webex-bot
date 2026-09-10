@@ -36,6 +36,7 @@ struct InputSettingsView: View {
                 }
                 Section {
                     NumberSetting(title: L10n.text("発話を区切る無音"), unit: L10n.text("秒"), value: $model.settings.silenceSeconds)
+                    NumberSetting(title: L10n.text("追加発話をつなぐ無音"), unit: L10n.text("秒"), value: $model.settings.continuationSeconds)
                     NumberSetting(title: L10n.text("合言葉の後の受付時間"), unit: L10n.text("秒"), value: $model.settings.commandWaitSeconds)
                     DisclosureGroup(L10n.text("マイクの詳細")) {
                         NumberSetting(title: L10n.text("入力音量のしきい値"), unit: "", value: $model.settings.minimumRMS)
@@ -43,7 +44,10 @@ struct InputSettingsView: View {
                         Text(L10n.text("入力できないときは追加音声処理をオフにしてください。マイクテストと診断結果は「ログ」にあります。"))
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                } header: { Text(L10n.text("発話の区切り")) } footer: { Text(L10n.text("待受時間に上限はありません。無音は0.3〜4秒、合言葉の後の指示受付は3〜60秒です。25秒続く音声区間は破棄して待受を続けます。")) }.disabled(!model.canConfigure)
+                } header: { Text(L10n.text("発話の区切り")) } footer: {
+                    Text(L10n.text("最後に声が出てから、初期値1.2秒の無音で一度送信します。初期値3.6秒までに話し始めたら、前の発話とつなげて再送します。送信前確認がONの場合は、つなげた全文を確認してから送信します。"))
+                    Text(L10n.text("区切る無音は0.3〜4秒、つなぐ無音はそれより長い30秒以内、合言葉の後の受付は3〜60秒です。25秒続く音声区間は破棄して待受を続けます。"))
+                }.disabled(!model.canConfigure)
                 Section {
                     Toggle(L10n.text("待受中の自動スリープを防ぐ"), isOn: $model.settings.preventIdleSleep).disabled(!model.canConfigure)
                 } header: { Text(L10n.text("常時待受")) } footer: {

@@ -107,6 +107,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var speakerThreshold = 0.76
     public var speakerAudioPath = ""
     public var silenceSeconds = 1.2
+    public var continuationSeconds = 3.6
     public var commandWaitSeconds = 12.0
     public var minimumRMS = 0.008
     public var voiceProcessing = false
@@ -178,6 +179,7 @@ public struct Settings: Codable, Equatable, Sendable {
         }
         let ranges: [(Double, ClosedRange<Double>, String)] = [
             (silenceSeconds, 0.3...4, L10n.text("発話を区切る無音は0.3〜4秒で指定してください。")),
+            (continuationSeconds, 0.3...30, L10n.text("追加発話をつなぐ無音は0.3〜30秒で指定してください。")),
             (commandWaitSeconds, 3...60, L10n.text("合言葉の後の受付時間は3〜60秒で指定してください。")),
             (minimumRMS, 0.001...0.1, L10n.text("入力音量のしきい値は0.001〜0.1で指定してください。")),
             (speakerThreshold, 0.5...0.99, L10n.text("類似度のしきい値は0.5〜0.99で指定してください。")),
@@ -187,6 +189,9 @@ public struct Settings: Codable, Equatable, Sendable {
             (replyTimeoutSeconds, 30...900, L10n.text("返信の待ち時間は30〜900秒で指定してください。"))
         ]
         for (value, range, message) in ranges where !range.contains(value) { throw RelayError.message(message) }
+        guard continuationSeconds > silenceSeconds else {
+            throw RelayError.message(L10n.text("追加発話をつなぐ無音は、発話を区切る無音より長くしてください。"))
+        }
         guard replyTimeoutSeconds > replySettleSeconds else {
             throw RelayError.message(L10n.text("返信の待ち時間は、本文更新が止まってから待つ時間より長くしてください。"))
         }
