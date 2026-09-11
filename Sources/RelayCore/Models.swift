@@ -96,6 +96,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var roomID = ""
     public var roomTitle = ""
     public var includeScreen = false
+    public var screenUseCases = ScreenUseCase.defaults
     public var confirmBeforeSending = true
     public var readReplies = false
     public var waitingSound = true
@@ -172,6 +173,7 @@ public struct Settings: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
+        try ScreenUseCase.validate(screenUseCases)
         try validateSpeech()
         guard ["system", "qwen"].contains(ttsEngine) else { throw RelayError.message(L10n.text("読み上げの音声方式を選び直してください。")) }
         guard ["prefer", "strict"].contains(speakerMode) else { throw RelayError.message(L10n.text("声の判定方法を選び直してください。")) }

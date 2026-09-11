@@ -30,17 +30,19 @@ enum PrivateFiles {
         }
     }
 
-    static func read(_ source: URL, maximumBytes: Int) throws -> Data {
-        precondition(maximumBytes > 0 && maximumBytes < Int.max)
+    static func read(_ source: URL, maximumBytes: Int? = nil) throws -> Data {
+        if let maximumBytes { precondition(maximumBytes > 0 && maximumBytes < Int.max) }
         let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
         var status = stat()
         guard fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
-              status.st_size <= maximumBytes else {
+              maximumBytes.map({ status.st_size <= $0 }) ?? true else {
             throw RelayError.message(L10n.text("保存ファイルの形式またはサイズが不正です。"))
         }
+        // User-authored settings can grow with the number of use cases. Other readers keep their explicit limits.
+        guard let maximumBytes else { return try handle.readToEnd() ?? Data() }
         let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
         guard data.count <= maximumBytes else { throw RelayError.message(L10n.text("保存ファイルが上限を超えています。")) }
         return data

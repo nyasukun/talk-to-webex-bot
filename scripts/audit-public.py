@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 PUBLIC_ASSETS = {
+    "integrations/raycast/assets/icon.png": "f38cb4aa79e66472114b39f8ad0fadf4a1bc9f5409e12ab920f5d28c46287687",
     "Resources/AppIcon.png": "f38cb4aa79e66472114b39f8ad0fadf4a1bc9f5409e12ab920f5d28c46287687",
     "Resources/AppIcon.icns": "b722b01f71de788696d104dad381a616e0c3ef3f2227671abd236e0641ced143",
 }

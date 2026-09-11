@@ -18,6 +18,7 @@ import RelayCore
         model.settings.roomID = "sample-room"
         model.settings.pythonPath = "/usr/bin/true"
         model.settings.asrModelPath = root.path
+        model.savedSettings = model.settings
         model.rooms = (1...5).map { Room(id: "sample-\($0)", title: "\(model.settings.roomTitle) \($0)", lastActivity: "2026-01-01T09:00:00Z") }
         model.roomSearchStatus = language == .english ? "5 results · Recent activity first" : "5件 · 最近のやりとり順"
         model.logs.record(.launched)
@@ -25,10 +26,12 @@ import RelayCore
         model.logs.record(.speechCompleted, category: .speech)
         try await render(IssueReportView(draft: IssueReport.draft(settings: model.settings, phase: model.phase, permissions: model.permissionSnapshot, entries: model.logs.entries)), name: "issue-report", size: NSSize(width: 748, height: 688), root: root)
         try await render(RelaySidebarView(model: model, selection: .constant(.home)), name: "sidebar", size: NSSize(width: 232, height: 780), root: root)
-        for section in [AppSection.home, .webex, .input, .output, .content, .permissions, .advanced, .logs] {
+        for section in [AppSection.home, .webex, .input, .screenHotkeys, .output, .content, .permissions, .advanced, .logs] {
             try await render(ContentView(model: model, selection: section), name: section.id, size: NSSize(width: 1080, height: 780), root: root)
         }
         try await render(ContentView(model: model, selection: .home), name: "home-dark", size: NSSize(width: 1080, height: 780), root: root, dark: true)
+        try await render(ScreenHotkeySettingsView(model: model, expandedIDs: [model.settings.screenUseCases[0].id]),
+                         name: "screen-use-case-editor", size: NSSize(width: 700, height: 1100), root: root)
         model.settings.ttsEngine = "qwen"
         try await render(ContentView(model: model, selection: .output), name: "qwen-noise-control", size: NSSize(width: 880, height: 650), root: root)
         for (index, group) in SpeechParameter.Group.allCases.enumerated() {
@@ -37,7 +40,7 @@ import RelayCore
         }
         model.settings.ttsEngine = "system"
         try await render(TokenRenewalView(model: model), name: "token-renewal", size: NSSize(width: 570, height: 560), root: root)
-        for section in [AppSection.home, .webex, .input, .output, .content, .logs] {
+        for section in [AppSection.home, .webex, .input, .screenHotkeys, .output, .content, .logs] {
             try await render(ContentView(model: model, selection: section), name: section.id + "-compact", size: NSSize(width: 880, height: 650), root: root)
         }
         model.microphoneTestProgress = 0.6

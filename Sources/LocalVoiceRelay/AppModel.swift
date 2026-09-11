@@ -34,6 +34,9 @@ import RelayCore
     }
     @Published var permissionSnapshot: PermissionSnapshot
     @Published var savedSettings: Settings
+    @Published var hotkeyErrors: [UUID: String] = [:]
+    @Published var screenUseCaseActive = false
+    @Published var raycastStatus = ""
     @Published var showTokenRenewal = false
     @Published var issueReportDraft: String?
     @Published var tokenBrowserOpened = true
@@ -86,6 +89,9 @@ import RelayCore
     let worker = LocalWorker()
     let speech = SpeechOutput()
     let waitingSound = WaitingSound()
+    let globalHotkeys = GlobalHotkeys()
+    let raycastBridge = RaycastBridge()
+    var captureScreen: @MainActor () async throws -> ScreenContext = { try await ScreenContext.capture() }
     private let standbyActivity = StandbyActivity()
     var referenceRecorder: AVAudioRecorder?
     private var lastMeterUpdate = Date.distantPast
@@ -129,6 +135,11 @@ import RelayCore
         guard !preview else { return }
         logs.record(.launched)
         PrivateStorage.clearTransient()
+        raycastBridge.start { [weak self] request in
+            guard let self else { return }
+            try self.runRaycastUseCase(request)
+        }
+        registerScreenHotkeys()
         refreshPermissions()
         healthTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -159,6 +170,7 @@ import RelayCore
     private func persistSettings() throws {
         try PrivateStorage.save(settings)
         savedSettings = settings
+        registerScreenHotkeys()
         logs.record(.settingsSaved)
     }
     private func updateStandbyActivity() {
@@ -201,7 +213,11 @@ import RelayCore
                         .screen: permissionSnapshot.screen ? 1 : 0, .screenEnabled: settings.includeScreen ? 1 : 0])
         }
         do {
-            try permissionSnapshot.require(includeScreen: settings.includeScreen)
+            if screenUseCaseActive {
+                guard permissionSnapshot.screen else { throw RelayError.missingPermissions([L10n.text("画面収録")]) }
+            } else {
+                try permissionSnapshot.require(includeScreen: settings.includeScreen)
+            }
             if permissionError {
                 permissionError = false
                 if phase == .error {
@@ -229,7 +245,13 @@ import RelayCore
         let run = epoch
         operation = Task {
             do { try await body(run) }
-            catch { if run == epoch { fail(error) } }
+            catch {
+                if run == epoch {
+                    let showError = screenUseCaseActive
+                    fail(error)
+                    if showError { showMainWindow?() }
+                }
+            }
         }
     }
     func start() {
@@ -474,6 +496,7 @@ import RelayCore
         chunks = []
         try await Task.sleep(nanoseconds: 1_000_000_000)
         guard run == epoch else { return }
+        screenUseCaseActive = false
         indicator = .idle
         if listening { try await startRecorder(run: run) }
         else {
@@ -482,7 +505,7 @@ import RelayCore
         }
     }
     func requestScreenPermission() {
-        guard canConfigure, settings.includeScreen else { return }
+        guard canConfigure else { return }
         Permissions.configureScreen()
         refreshPermissions()
     }
@@ -512,6 +535,7 @@ import RelayCore
         chunks = []
         wake.reset()
         voiceInteraction = nil
+        screenUseCaseActive = false
         level = 0
         draft = nil
         phase = .stopped

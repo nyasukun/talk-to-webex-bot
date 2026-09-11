@@ -7,7 +7,27 @@ struct ScreenContext: Sendable {
     let png: Data
     let ocr: String
 
-    enum Unavailable: Error { case noWindow, changedWindow, inactiveSession }
+    enum Unavailable: LocalizedError {
+        case noWindow, changedWindow, inactiveSession
+        var errorDescription: String? {
+            switch self {
+            case .noWindow: return L10n.text("対象のウィンドウを取得できません。別のアプリのウィンドウを前面にして実行してください。送信はしていません。")
+            case .changedWindow: return L10n.text("取得中にアクティブウィンドウが変わりました。対象を前面にしたまま実行してください。送信はしていません。")
+            case .inactiveSession: return L10n.text("画面がロックされているため取得できません。ロック解除後に実行してください。送信はしていません。")
+            }
+        }
+    }
+
+    static func frontWindowID(processID: pid_t) -> CGWindowID? {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return windows.first { item in
+            guard (item[kCGWindowOwnerPID as String] as? Int32) == processID,
+                  (item[kCGWindowLayer as String] as? Int) == 0,
+                  let bounds = item[kCGWindowBounds as String] as? [String: Any],
+                  let width = bounds["Width"] as? Double, let height = bounds["Height"] as? Double else { return false }
+            return width > 50 && height > 50
+        }?[kCGWindowNumber as String] as? CGWindowID
+    }
 
     static func sessionAllowsCapture(_ session: [String: Any]?) -> Bool {
         guard let session, session[kCGSessionOnConsoleKey as String] as? Bool == true,
@@ -21,20 +41,17 @@ struct ScreenContext: Sendable {
         guard sessionAllowsCapture(CGSessionCopyCurrentDictionary() as? [String: Any]) else { throw Unavailable.inactiveSession }
         guard let front = NSWorkspace.shared.frontmostApplication,
               front.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              front.bundleIdentifier != "com.raycast.macos",
               front.bundleIdentifier != "com.apple.loginwindow" else {
             throw Unavailable.noWindow
         }
+        guard let windowID = frontWindowID(processID: front.processIdentifier) else { throw Unavailable.noWindow }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == front.processIdentifier else {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == front.processIdentifier,
+              frontWindowID(processID: front.processIdentifier) == windowID else {
             throw Unavailable.changedWindow
         }
-        let ordered = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        let ids = ordered.compactMap { item -> CGWindowID? in
-            guard (item[kCGWindowOwnerPID as String] as? Int32) == front.processIdentifier,
-                  (item[kCGWindowLayer as String] as? Int) == 0 else { return nil }
-            return item[kCGWindowNumber as String] as? CGWindowID
-        }
-        guard let window = ids.compactMap({ id in content.windows.first { $0.windowID == id && $0.frame.width > 50 && $0.frame.height > 50 } }).first else {
+        guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
             throw Unavailable.noWindow
         }
         let filter = SCContentFilter(desktopIndependentWindow: window)
@@ -45,7 +62,8 @@ struct ScreenContext: Sendable {
         configuration.showsCursor = false
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
         guard sessionAllowsCapture(CGSessionCopyCurrentDictionary() as? [String: Any]),
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == front.processIdentifier else {
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == front.processIdentifier,
+              frontWindowID(processID: front.processIdentifier) == windowID else {
             throw Unavailable.changedWindow
         }
         let context = try await Task.detached(priority: .userInitiated) {
@@ -55,7 +73,8 @@ struct ScreenContext: Sendable {
             return ScreenContext(png: png, ocr: text)
         }.value
         guard sessionAllowsCapture(CGSessionCopyCurrentDictionary() as? [String: Any]),
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == front.processIdentifier else {
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == front.processIdentifier,
+              frontWindowID(processID: front.processIdentifier) == windowID else {
             throw Unavailable.changedWindow
         }
         return context

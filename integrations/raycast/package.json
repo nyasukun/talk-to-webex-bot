@@ -1,0 +1,49 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "talk-to-webex-bot",
+  "title": "Talk to Webex bot",
+  "description": "Search saved screen use cases and send the active window to your Webex bot.",
+  "icon": "icon.png",
+  "author": "local",
+  "license": "MIT",
+  "platforms": [
+    "macOS"
+  ],
+  "categories": [
+    "Productivity",
+    "Communication"
+  ],
+  "commands": [
+    {
+      "name": "talk",
+      "title": "Talk",
+      "subtitle": "Talk to Webex bot",
+      "description": "登録済みの画面ユースケースを検索して実行します。",
+      "mode": "view",
+      "keywords": [
+        "talk",
+        "webex",
+        "要約",
+        "翻訳",
+        "スクショ",
+        "OCR"
+      ]
+    }
+  ],
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@raycast/api": "1.104.25"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.17",
+    "@types/react": "19.0.10",
+    "react-devtools": "6.1.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

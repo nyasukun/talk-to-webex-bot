@@ -5,6 +5,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case home = "ホーム"
     case webex = "Webex"
     case input = "音声入力"
+    case screenHotkeys = "画面ホットキー"
     case output = "読み上げ・返信"
     case content = "送信内容"
     case permissions = "権限"
@@ -17,6 +18,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .home: return "waveform"
         case .webex: return "bubble.left.and.bubble.right.fill"
         case .input: return "mic.fill"
+        case .screenHotkeys: return "keyboard"
         case .output: return "speaker.wave.2.fill"
         case .content: return "text.bubble.fill"
         case .permissions: return "hand.raised.fill"
@@ -29,7 +31,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .home, .webex: return .teal
         case .input: return .orange
         case .output: return .purple
-        case .content: return .blue
+        case .content, .screenHotkeys: return .blue
         case .permissions: return .indigo
         case .advanced, .logs: return .gray
         }
@@ -41,6 +43,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .home: terms = L10n.text("開始 停止 待受 会話")
         case .webex: terms = L10n.text("API Key パスワード キーチェーン トークン 認証 DM 宛先")
         case .input: terms = L10n.text("合言葉 マイク 話者 録音 常時 ロック スリープ 無音 追加発話")
+        case .screenHotkeys: terms = L10n.text("ホットキー ショートカット スクショ OCR 要約 翻訳 プロンプト ユースケース")
         case .output: terms = L10n.text("TTS Qwen 声 音量 音質 速さ ノイズ 再生 ソナー ポーリング 監視 タイムアウト")
         case .content: terms = L10n.text("スクショ 画像 OCR プロンプト テンプレート スレッド 確認")
         case .permissions: terms = L10n.text("許可 画面収録 マイク")

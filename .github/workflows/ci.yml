@@ -9,6 +9,20 @@ concurrency:
   group: validate-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  raycast:
+    runs-on: macos-15
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: integrations/raycast
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          persist-credentials: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
   test:
     runs-on: macos-15
     timeout-minutes: 25

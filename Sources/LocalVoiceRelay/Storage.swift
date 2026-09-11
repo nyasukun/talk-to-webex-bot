@@ -19,7 +19,7 @@ struct PrivateStorage {
     }
     static func load() -> Settings {
         var settings = Settings()
-        if let data = try? PrivateFiles.read(directory.appendingPathComponent("settings.json"), maximumBytes: 1_000_000),
+        if let data = try? PrivateFiles.read(directory.appendingPathComponent("settings.json")),
            let decoded = try? decodeSettings(data) { settings = decoded }
         if settings.pythonPath.isEmpty { settings.pythonPath = directory.appendingPathComponent("runtime/.venv/bin/python").path }
         if settings.asrModelPath.isEmpty { settings.asrModelPath = directory.appendingPathComponent("models/whisper").path }

@@ -89,7 +89,7 @@ extension AppModel {
             presentDraft(draft)
         } else { try await send(draft, run: run) }
     }
-    private func presentDraft(_ draft: Draft) {
+    func presentDraft(_ draft: Draft) {
         self.draft = draft
         phase = .confirming
         detail = L10n.text("本文・画像・宛先を確認してください。")
@@ -106,7 +106,7 @@ extension AppModel {
         stop()
         detail = L10n.text("送信を取り消しました。")
     }
-    private func send(_ draft: Draft, run: UUID) async throws {
+    func send(_ draft: Draft, run: UUID) async throws {
         let client = try await connection(), snapshot = draft.settings
         guard run == epoch else { return }
         replyMonitoringStatus = snapshot.readReplies ? L10n.text("送信後に返信を監視します。") : L10n.text("返信の読み上げはOFFです。監視しません。")

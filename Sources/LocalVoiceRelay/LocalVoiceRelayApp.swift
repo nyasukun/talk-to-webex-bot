@@ -2,7 +2,17 @@ import RelayCore
 import SwiftUI
 import AppKit
 
-@main struct LocalVoiceRelayApp: App {
+@main enum RelayEntryPoint {
+    @MainActor static func main() {
+        if CommandLine.arguments.dropFirst().first == "--run-screen-use-case" {
+            exit(RaycastCommand.run(arguments: Array(CommandLine.arguments.dropFirst(2))))
+        }
+        LocalVoiceRelayApp.main()
+    }
+}
+
+struct LocalVoiceRelayApp: App {
+    @NSApplicationDelegateAdaptor(RelayApplicationDelegate.self) private var delegate
     @StateObject private var model = AppModel()
     var body: some Scene {
         Window("Talk to Webex bot", id: "main") {
@@ -10,6 +20,7 @@ import AppKit
                 .environment(\.locale, model.settings.language.locale)
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     model.stop()
+                    model.globalHotkeys.unregister()
                     PrivateStorage.clearTransient()
                 }
         }

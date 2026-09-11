@@ -110,6 +110,7 @@ struct ContentView: View {
         case .home: HomeView(model: model) { selection = $0 }
         case .webex: WebexSettingsView(model: model)
         case .input: InputSettingsView(model: model)
+        case .screenHotkeys: ScreenHotkeySettingsView(model: model)
         case .output: OutputSettingsView(model: model)
         case .content: ContentSettingsView(model: model)
         case .permissions: PermissionSettingsView(model: model)

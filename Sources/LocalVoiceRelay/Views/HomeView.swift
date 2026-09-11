@@ -33,6 +33,25 @@ struct HomeView: View {
                         ProgressView(value: Double(model.level)).frame(width: 90).accessibilityLabel(L10n.text("マイク入力レベル"))
                     }
                 }.padding(24).relayCard()
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label(L10n.text("画面ホットキー"), systemImage: "keyboard").font(.headline)
+                        Spacer()
+                        Button(L10n.text("設定")) { navigate(.screenHotkeys) }
+                    }
+                    Text(L10n.text("音声入力なしで、前面の画面をWebexへ送信できます。"))
+                        .font(.callout).foregroundStyle(.secondary)
+                    ForEach(model.savedSettings.screenUseCases.filter { $0.enabled && $0.hotkey != nil }) { useCase in
+                        HStack {
+                            Text(useCase.name)
+                            Spacer()
+                            if model.hotkeyErrors[useCase.id] != nil {
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            }
+                            Text(useCase.hotkey?.title ?? "").font(.system(.body, design: .monospaced))
+                        }.font(.callout)
+                    }
+                }.padding(16).relayCard()
                 if let step = model.nextSetupStep, !model.listening { setupCard(step) }
                 HStack(spacing: 12) {
                     Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(.teal)

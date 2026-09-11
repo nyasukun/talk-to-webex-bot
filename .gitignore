@@ -1,5 +1,7 @@
 .build/
 .swiftpm/
+node_modules/
+integrations/raycast/raycast-env.d.ts
 .venv/
 __pycache__/
 *.pyc
@@ -38,3 +40,4 @@ artifacts/
 *.m4s
 *.screenstudio/
 !Resources/AppIcon.png
+!integrations/raycast/assets/icon.png
