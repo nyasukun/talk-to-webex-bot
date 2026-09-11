@@ -27,7 +27,8 @@ enum WorkerRequest {
         ["language": settings.language.rawValue, "action": "warm_speech", "model": settings.ttsModelPath,
          "reference_audio": settings.referenceAudioPath,
          "reference_text": settings.referenceText,
-         "reduce_reference_noise": settings.reduceReferenceNoise]
+         "reduce_reference_noise": settings.reduceReferenceNoise,
+         "speech_options": settings.qwenSpeech.workerOptions]
     }
     static func beginSpeech(text: String, settings: Settings) -> [String: Any] {
         var request = warmSpeech(settings: settings)

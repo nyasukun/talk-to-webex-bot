@@ -16,8 +16,8 @@ import relay_speech
 import relay_worker as worker
 
 
-def planned_units(text):
-    return [unit for _, _, unit in relay_speech.speech_plan(text)]
+def planned_units(text, options=None):
+    return [unit for _, _, unit in relay_speech.speech_plan(text, options=options)]
 
 
 def audio_result(value, line=1, total=2):
@@ -61,7 +61,7 @@ class WorkerTests(unittest.TestCase):
             signal = np.column_stack([np.full(48000, 0.1), np.full(48000, 0.3)])
             sf.write(path, signal, 16000, subtype='FLOAT')
             original = path.read_bytes()
-            with patch.object(worker, 'prepare_voice_reference', side_effect=lambda audio, rate, reduce_noise: audio) as prepare:
+            with patch.object(worker, 'prepare_voice_reference', side_effect=lambda audio, rate, reduce_noise, **_: audio) as prepare:
                 first = instance.cached_voice_reference(str(path), 24000)
                 second = instance.cached_voice_reference(str(path), 24000)
                 self.assertIs(first, second)
@@ -124,7 +124,7 @@ class WorkerTests(unittest.TestCase):
         silent = relay_speech.prepare_voice_reference(np.zeros(rate * 4, dtype=np.float32), rate, reduce_noise=True)
         self.assertEqual(len(silent), rate * 4)
         self.assertTrue(np.all(np.abs(silent) < 1e-6))
-        with patch.object(relay_speech, 'clean_voice_reference', side_effect=lambda audio, rate: audio) as clean:
+        with patch.object(relay_speech, 'clean_voice_reference', side_effect=lambda audio, rate, **_: audio) as clean:
             relay_speech.prepare_voice_reference(speech, rate, reduce_noise=True)
             relay_speech.prepare_voice_reference(speech, rate, reduce_noise=False)
             self.assertEqual(clean.call_count, 1)
@@ -304,8 +304,7 @@ class WorkerTests(unittest.TestCase):
     def test_long_clauses_split_at_punctuation_symbols_and_keep_the_tail(self):
         for separator in ('、', '，', ';', '：', '→', '／', '・', '—'):
             source = 'あ' * 18 + separator + 'い' * 18 + '、' + 'う' * 18 + '。'
-            with patch.object(relay_speech, 'SPEECH_MAX_LINE_CHARACTERS', 32):
-                pieces = planned_units(source)
+            pieces = planned_units(source, options={'max_line_characters': 32})
             self.assertEqual(pieces[0], 'あ' * 18 + separator)
             self.assertEqual(''.join(pieces), source)
             self.assertTrue(all(len(part) <= 32 for part in pieces))
@@ -315,8 +314,7 @@ class WorkerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'darwin', 'Uses the macOS offline word dictionary.')
     def test_japanese_split_keeps_words_and_polite_ending_together(self):
         source = 'サービスの概要といくつかの機能についての要約をしっかりお届けしています。'
-        with patch.object(relay_speech, 'SPEECH_MAX_LINE_CHARACTERS', 32):
-            pieces = planned_units(source)
+        pieces = planned_units(source, options={'max_line_characters': 32})
         self.assertEqual(''.join(pieces), source)
         self.assertTrue(any('お届けしています。' in part for part in pieces))
         self.assertTrue(all(8 <= len(part) <= 32 for part in pieces))
@@ -324,8 +322,7 @@ class WorkerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'darwin', 'Uses the macOS offline word dictionary.')
     def test_early_comma_and_long_kana_words_are_not_cut_at_character_limit(self):
         source = 'このあとは、じゅうごじさんじゅっぷんからの動画チェックと資料整理がありますが、先に予定を確認しますか？'
-        with patch.object(relay_speech, 'SPEECH_MAX_LINE_CHARACTERS', 32):
-            pieces = planned_units(source)
+        pieces = planned_units(source, options={'max_line_characters': 32})
         self.assertEqual(pieces[0], 'このあとは、')
         self.assertEqual(''.join(pieces), source)
         for phrase in ('じゅうごじさんじゅっぷん', 'チェック', '確認しますか？'):

@@ -10,6 +10,7 @@ os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_T
                   DO_NOT_TRACK="1", TOKENIZERS_PARALLELISM="false")
 
 from relay_common import WorkerRequestError, local_path
+from relay_speech_settings import speech_options
 from relay_recognition import (ASR_SAMPLE_RATE, SPEAKER_MIN_SAMPLES, preferred_turns, speaker_scores_accepted,
                                speaker_window_ranges, speech_turn_spans, usable_segments, voiced_audio,
                                voiced_sample_count)
@@ -25,6 +26,7 @@ class Worker:
         self.tts = None
         self.tts_path = None
         self.tts_language = "ja"
+        self.tts_options = speech_options()
         self.warm_key = None
         self.reference_key = None
         self.reference_signal = None
@@ -165,13 +167,15 @@ class Worker:
         text = "".join(s["text"] for s in accepted).strip()
         return {"text": text, "similarity": similarity, "speech_seconds": duration, **speaker_metrics}
 
-    def cached_voice_reference(self, reference, sample_rate, reduce_noise=True):
+    def cached_voice_reference(self, reference, sample_rate, reduce_noise=True, options=None):
         import numpy as np
         import soundfile as sf
         from scipy.signal import resample_poly
         from math import gcd
+        options = speech_options(options)
+        conditioning = tuple((key, value) for key, value in options.items() if key.startswith('reference_') or key == 'peak_ceiling')
         stat = Path(reference).stat()
-        key = (reference, stat.st_mtime_ns, stat.st_size, sample_rate, reduce_noise)
+        key = (reference, stat.st_mtime_ns, stat.st_size, sample_rate, reduce_noise, conditioning)
         if self.reference_key != key:
             audio, rate = sf.read(reference, dtype='float32', always_2d=True)
             audio = audio.mean(axis=1)
@@ -180,11 +184,18 @@ class Worker:
             if rate != sample_rate:
                 divisor = gcd(rate, sample_rate)
                 audio = resample_poly(audio, sample_rate // divisor, rate // divisor)
-            self.reference_signal, self.reference_key = prepare_voice_reference(audio, sample_rate, reduce_noise), key
+            prepared = prepare_voice_reference(audio, sample_rate, reduce_noise, options=options)
+            # The pinned model fingerprints references by size and sample sum; two differently
+            # conditioned takes can collide. Force it to encode the changed recording again.
+            prompt_cache = getattr(self.tts, '_icl_cache', None)
+            if isinstance(prompt_cache, dict):
+                prompt_cache.clear()
+            self.reference_signal, self.reference_key = prepared, key
         return self.reference_signal
 
     def prepare_tts(self, request):
         self.tts_language = self.language(request)
+        self.tts_options = speech_options(request.get('speech_options', {}))
         import mlx.core as mx
         from mlx_audio.tts.utils import load_model
         model_path = str(local_path(request["model"], directory=True))
@@ -194,25 +205,25 @@ class Worker:
             raise WorkerRequestError("音声再現には参照音声と一致する文字起こしが必要です。")
         if self.tts is None or self.tts_path != model_path:
             self.tts = load_model(model_path)
-            install_sampling_fixes(self.tts)
             self.tts_path = model_path
             self.warm_key = None
+        install_sampling_fixes(self.tts, self.tts_options['repetition_window'])
         reduce_noise = request.get("reduce_reference_noise", True)
         if not isinstance(reduce_noise, bool):
             raise WorkerRequestError("参照音声のノイズ軽減設定が不正です。")
-        audio = self.cached_voice_reference(reference, self.tts.sample_rate, reduce_noise)
+        audio = self.cached_voice_reference(reference, self.tts.sample_rate, reduce_noise, options=self.tts_options)
         return mx.array(audio), ref_text
 
     def generate_speech(self, text, reference, ref_text, max_tokens):
         return self.tts.generate(text=text, ref_audio=reference, ref_text=ref_text, lang_code="English" if self.tts_language == "en" else "Japanese",
-                                 verbose=False, stream=True, streaming_interval=0.8, max_tokens=max_tokens,
-                                 **SPEECH_SAMPLING)
+                                 verbose=False, stream=True, streaming_interval=self.tts_options['streaming_interval'], max_tokens=max_tokens,
+                                 **{key: self.tts_options[key] for key in SPEECH_SAMPLING})
 
     def warm_speech(self, request):
         import time
         started = time.perf_counter()
         reference, ref_text = self.prepare_tts(request)
-        key = (self.tts_path, self.reference_key, ref_text, self.tts_language)
+        key = (self.tts_path, self.reference_key, ref_text, self.tts_language, tuple(self.tts_options.items()))
         if self.warm_key != key:
             # Exercise inference and populate the model's reference-code cache. Never play or save this audio.
             for _ in self.generate_speech("Ready." if self.tts_language == "en" else "準備できました。", reference, ref_text, 32):
@@ -243,17 +254,19 @@ class Worker:
                 yield from self.speech_part(part, reference, ref_text, depth + 1)
 
     def audio_chunks(self, request):
-        plan = list(speech_plan(request["text"]))
+        self.tts_options = speech_options(request.get('speech_options', {}))
+        plan = list(speech_plan(request["text"], options=self.tts_options))
         reference, ref_text = self.prepare_tts(request)
         for index, total, unit in plan:
             with contextlib.closing(self.speech_part(unit, reference, ref_text)) as parts:
                 result = joined_speech_parts(parts)
-            result.audio = finished_speech(result.audio, result.sample_rate)
+            result.audio = finished_speech(result.audio, result.sample_rate, options=self.tts_options)
             result.line_index, result.line_count = index, total
             yield result
 
     def begin_speech(self, request):
         self.end_speech()
+        speech_options(request.get('speech_options', {}))
         lines = speech_lines(request["text"])
         self.speech_resplits = 0
         self.tts_stream = self.audio_chunks(request)

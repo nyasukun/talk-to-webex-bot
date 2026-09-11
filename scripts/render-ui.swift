@@ -31,6 +31,10 @@ import RelayCore
         try await render(ContentView(model: model, selection: .home), name: "home-dark", size: NSSize(width: 1080, height: 780), root: root, dark: true)
         model.settings.ttsEngine = "qwen"
         try await render(ContentView(model: model, selection: .output), name: "qwen-noise-control", size: NSSize(width: 880, height: 650), root: root)
+        for (index, group) in SpeechParameter.Group.allCases.enumerated() {
+            try await render(Form { SpeechQualitySettingsView(model: model, expandedGroups: [group]) }.formStyle(.grouped),
+                             name: "speech-quality-\(index)", size: NSSize(width: 680, height: 850), root: root)
+        }
         model.settings.ttsEngine = "system"
         try await render(TokenRenewalView(model: model), name: "token-renewal", size: NSSize(width: 570, height: 560), root: root)
         for section in [AppSection.home, .webex, .input, .output, .content, .logs] {

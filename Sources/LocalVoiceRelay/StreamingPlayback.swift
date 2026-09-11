@@ -21,10 +21,11 @@ import RelayCore
         try file.read(into: buffer)
         return buffer
     }
-    func enqueue(_ buffer: AVAudioPCMBuffer) throws {
+    func enqueue(_ buffer: AVAudioPCMBuffer, volume: Float = 1) throws {
         let parts = try Self.playbackBuffers(buffer)
         if engine == nil {
             let engine = makeEngine(), node = AVAudioPlayerNode()
+            node.volume = volume
             engine.attach(node)
             engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
             try engine.start()

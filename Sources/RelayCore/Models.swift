@@ -128,6 +128,9 @@ public struct Settings: Codable, Equatable, Sendable {
     public var asrModelPath = ""
     public var pythonPath = ""
     public var ttsEngine = "system"
+    public var speechVolume = 1.0
+    public var systemSpeechRate = 0.0
+    public var qwenSpeech = QwenSpeechSettings()
     public var ttsModelPath = ""
     public var referenceAudioPath = ""
     public var referenceText = ""
@@ -169,6 +172,7 @@ public struct Settings: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
+        try validateSpeech()
         guard ["system", "qwen"].contains(ttsEngine) else { throw RelayError.message(L10n.text("読み上げの音声方式を選び直してください。")) }
         guard ["prefer", "strict"].contains(speakerMode) else { throw RelayError.message(L10n.text("声の判定方法を選び直してください。")) }
         guard WakeMatcher.isValid(wakePhrases) else { throw RelayError.message(L10n.text("合言葉を4文字以上で登録してください。複数候補は改行で分けます。")) }

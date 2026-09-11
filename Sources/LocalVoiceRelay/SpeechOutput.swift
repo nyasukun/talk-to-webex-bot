@@ -40,11 +40,13 @@ import RelayCore
     }
     func warmup(settings: Settings, worker: LocalWorker) async throws {
         guard settings.ttsEngine == "qwen" else { return }
+        try settings.validateSpeech()
         _ = try await worker.call(WorkerRequest.warmSpeech(settings: settings), python: settings.pythonPath)
     }
     func speak(_ text: String, settings: Settings, worker: LocalWorker,
                onSplit: (Int) -> Void = { _ in },
                onProgress: (SpeechLineProgress) -> Void = { _ in }, onStart: () -> Void = {}) async throws {
+        try settings.validateSpeech()
         let run = UUID()
         generation = run
         cancelled = false
@@ -63,9 +65,9 @@ import RelayCore
         }
         let source = try PrivateStorage.temporaryFile(extension: "txt")
         defer { try? FileManager.default.removeItem(at: source) }
-        try Data(text.utf8).write(to: source)
+        try Data(Self.systemSpeechText(text, volume: settings.speechVolume).utf8).write(to: source)
         // The identifier selects the exact quality variant; the display name alone would pick the compact voice.
-        let process = OfflineProcess.sandboxed(["/usr/bin/say", "-v", voice.identifier, "-f", source.path])
+        let process = OfflineProcess.sandboxed(Self.systemArguments(voice: voice.identifier, source: source.path, rate: settings.systemSpeechRate))
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         self.process = process
@@ -100,7 +102,7 @@ import RelayCore
         }, enqueue: { buffer, result in
             let remaining = playback.queuedSeconds
             let ranOut = playback.started && playback.queuedLines == 0
-            try playback.enqueue(buffer)
+            try playback.enqueue(buffer, volume: Float(settings.speechVolume))
             onProgress(SpeechLineProgress(line: result["line_index"] as? Int ?? 0,
                                           total: result["line_count"] as? Int ?? 0,
                                           generationSeconds: result["generation_seconds"] as? Double ?? 0,
@@ -116,6 +118,17 @@ import RelayCore
         }, stop: {
             if generation == run { playback.stop() }
         })
+    }
+    /// macOS's volume command applies to this speech channel, leaving the system output volume alone.
+    static func systemSpeechText(_ text: String, volume: Double) -> String {
+        // Reply text must not introduce commands that override the selected volume or speaking rate.
+        let literal = text.replacingOccurrences(of: "[", with: "［").replacingOccurrences(of: "]", with: "］")
+        return "[[volm \(volume)]]" + literal
+    }
+    static func systemArguments(voice: String, source: String, rate: Double) -> [String] {
+        var arguments = ["/usr/bin/say", "-v", voice, "-f", source]
+        if rate > 0 { arguments += ["-r", String(rate)] }
+        return arguments
     }
     func stop() {
         generation = UUID()
