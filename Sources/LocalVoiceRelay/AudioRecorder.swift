@@ -4,6 +4,14 @@ import RelayCore
 
 final class AudioRecorder: @unchecked Sendable {
     typealias Chunk = AudioSegmenter.Chunk
+    struct PausedInput {
+        var segmenter: AudioSegmenter
+        var chunks: [Chunk]
+        mutating func shift(by seconds: TimeInterval) {
+            segmenter.shift(by: seconds)
+            chunks = chunks.map { $0.shifted(by: seconds) }
+        }
+    }
     private var engine = AVAudioEngine()
     private var configurationObserver: NSObjectProtocol?
     @MainActor private(set) var isCapturing = false
@@ -29,10 +37,11 @@ final class AudioRecorder: @unchecked Sendable {
     var onConfigurationChange: (@Sendable () -> Void)?
     private var reportedConversionError = false
 
-    @MainActor func start(silenceSeconds: Double, minimumRMS: Double, voiceProcessing: Bool = false, diagnostic: Bool = false) async throws {
+    @MainActor func start(silenceSeconds: Double, minimumRMS: Double, voiceProcessing: Bool = false, diagnostic: Bool = false, resuming: PausedInput? = nil) async throws {
         try Permissions.requireMicrophone()
         try Task.checkCancellation()
         stop()
+        if let resuming { queue.sync { segmenter = resuming.segmenter; completedChunks = resuming.chunks } }
         engine = AVAudioEngine()
         let input = engine.inputNode
         try input.setVoiceProcessingEnabled(voiceProcessing)
@@ -99,7 +108,10 @@ final class AudioRecorder: @unchecked Sendable {
             throw error
         }
     }
-    @MainActor func stop() {
+    @MainActor func stop() { _ = pause() }
+
+    /// Freeze the segmenter, including an utterance that has not reached silence yet.
+    @MainActor func pause() -> PausedInput {
         isCapturing = false
         if let configurationObserver {
             NotificationCenter.default.removeObserver(configurationObserver)
@@ -110,12 +122,14 @@ final class AudioRecorder: @unchecked Sendable {
             engine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
         }
-        queue.sync {
+        return queue.sync {
+            let pending = PausedInput(segmenter: segmenter, chunks: completedChunks)
             generation += 1
             samples = []
             segmenter = AudioSegmenter()
             completedChunks = []
             reportedConversionError = false
+            return pending
         }
     }
     @MainActor func finishDiagnostic() -> [Float] {

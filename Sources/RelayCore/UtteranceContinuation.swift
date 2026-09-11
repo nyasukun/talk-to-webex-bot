@@ -8,6 +8,9 @@ public struct SpeechInterval: Sendable, Equatable {
         self.startedAt = startedAt
         self.lastVoiceAt = lastVoiceAt
     }
+    public func shifted(by seconds: TimeInterval) -> Self {
+        Self(startedAt: startedAt.addingTimeInterval(seconds), lastVoiceAt: lastVoiceAt.addingTimeInterval(seconds))
+    }
 }
 
 public struct UtteranceContinuation {
@@ -26,6 +29,9 @@ public struct UtteranceContinuation {
     }
     public func shouldWait(now: Date, pending: SpeechInterval?) -> Bool {
         now < deadline || pending.map(accepts) == true
+    }
+    public mutating func shift(by seconds: TimeInterval) {
+        lastVoiceAt = lastVoiceAt.addingTimeInterval(seconds)
     }
     @discardableResult public mutating func append(_ text: String, speech: SpeechInterval) -> Bool {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -47,11 +53,18 @@ public struct AudioSegmenter {
             self.truncated = truncated
             self.speech = speech
         }
+        public func shifted(by seconds: TimeInterval) -> Self {
+            Self(samples: samples, truncated: truncated, speech: speech.shifted(by: seconds))
+        }
     }
     private var samples: [Float] = [], preRoll: [Float] = []
     private var silence = 0, voiced = 0
     public private(set) var pendingSpeech: SpeechInterval?
     public init() {}
+
+    public mutating func shift(by seconds: TimeInterval) {
+        pendingSpeech = pendingSpeech?.shifted(by: seconds)
+    }
 
     public mutating func ingest(_ floats: [Float], isVoiced: Bool, endingAt: Date, silenceSeconds: Double) -> Chunk? {
         guard !floats.isEmpty else { return nil }

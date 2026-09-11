@@ -8,11 +8,16 @@ import RelayCore
     private(set) var delivery: AppModel.Delivery?
     private(set) var sentIDs = Set<String>()
     private(set) var acceptingInput = true
+    private(set) var needsDelivery = false
+    let mode: VoiceMode
     var text: String { continuation.text }
 
-    init(command: String, speech: SpeechInterval, seconds: TimeInterval) {
+    init(command: String, speech: SpeechInterval, seconds: TimeInterval, mode: VoiceMode = .message) {
         continuation = UtteranceContinuation(text: command, speech: speech, seconds: seconds)
+        self.mode = mode
     }
+
+    mutating func shift(by seconds: TimeInterval) { continuation.shift(by: seconds) }
 
     func accepts(_ speech: SpeechInterval) -> Bool {
         continuation.accepts(speech)
@@ -28,6 +33,7 @@ import RelayCore
 
     mutating func setDraft(_ draft: AppModel.Draft) {
         self.draft = draft
+        needsDelivery = true
     }
 
     mutating func append(_ text: String, speech: SpeechInterval) throws -> AppModel.Draft? {
@@ -40,11 +46,13 @@ import RelayCore
         let draft = AppModel.Draft(body: body, screen: previous.screen, settings: previous.settings, thread: previous.thread)
         continuation = continued
         self.draft = draft
+        needsDelivery = true
         return draft
     }
 
     mutating func recordDelivery(_ delivery: AppModel.Delivery) {
         sentIDs.insert(delivery.sent.id)
         self.delivery = delivery
+        needsDelivery = false
     }
 }

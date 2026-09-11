@@ -5,7 +5,7 @@ import RelayCore
 extension AppModel {
     func monitor(client: WebexClient, sent: Message, baseline: [Message], settings: Settings, run: UUID, supersededRequestIDs: Set<String> = []) async throws {
         guard supersededRequestIDs.isEmpty || sent.parentId == nil else {
-            replyMonitoringStatus = L10n.text("同じスレッド内で再送したため、最後の送信への返信を特定できません。Webexで返信を確認してください。")
+            replyMonitoringStatus = L10n.text("同じスレッド内に複数の送信があり、対象の送信への返信を特定できません。Webexで返信を確認してください。")
             logs.record(.replyCorrelationUnavailable, category: .webex, level: .warning)
             return
         }
@@ -59,7 +59,7 @@ extension AppModel {
                 polls += 1
                 replyMonitoringStatus = L10n.text("取得 \(polls)回 / 返信候補 \(tracker.candidateIDs.count)件 / 途中表示 \(tracker.busyMessageCount)件 / 同一IDの本文更新 \(tracker.bodyUpdateCount)回")
                 if !supersededRequestIDs.isEmpty {
-                    replyMonitoringStatus += L10n.text(" / 再送後は最後のメッセージに紐づく返信だけを読み上げます。")
+                    replyMonitoringStatus += L10n.text(" / 複数の送信があるため、対象メッセージに紐づく返信だけを読み上げます。")
                 }
                 if Date().timeIntervalSince(lastLog) >= 5 || lastUpdates != tracker.bodyUpdateCount || lastCandidates != tracker.candidateIDs.count || lastBusy != tracker.busyMessageCount || !ready.isEmpty {
                     logs.record(.replyProgress, category: .webex, metrics: [.polls: Double(polls), .candidates: Double(tracker.candidateIDs.count), .busyMessages: Double(tracker.busyMessageCount), .updates: Double(tracker.bodyUpdateCount)])

@@ -62,7 +62,8 @@ export async function submitRequest(
   useCase: UseCase,
   expectedBundleID: string,
   directory = appDirectory,
-  dispatch: (url: string, appPath: string) => Promise<unknown> = (url, appPath) => promisify(execFile)("/usr/bin/open", ["-g", "-a", appPath, url]),
+  dispatch: (url: string, appPath: string) => Promise<unknown> = (url, appPath) =>
+    promisify(execFile)(join(appPath, "Contents", "MacOS", "LocalVoiceRelay"), ["--dispatch-raycast-request", new URL(url).searchParams.get("request")!]),
 ): Promise<string> {
   if (!uuid.test(useCase.id) || !expectedBundleID || ["com.raycast.macos", "org.localvoicerelay.app", "com.apple.loginwindow"].includes(expectedBundleID)) {
     throw new Error("対象のアプリを前面にしてからRaycastを開き直してください。");

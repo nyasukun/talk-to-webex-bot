@@ -92,6 +92,43 @@ import RelayCore
     let globalHotkeys = GlobalHotkeys()
     let raycastBridge = RaycastBridge()
     var captureScreen: @MainActor () async throws -> ScreenContext = { try await ScreenContext.capture() }
+    var frontmostBundleID: @MainActor () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+    var beginMicrophoneCapture: @MainActor (AudioRecorder, Settings, AudioRecorder.PausedInput?) async throws -> Void = { recorder, settings, resuming in
+        try await recorder.start(silenceSeconds: settings.silenceSeconds, minimumRMS: settings.minimumRMS, voiceProcessing: settings.voiceProcessing, resuming: resuming)
+    }
+    var callVoiceWorker: @MainActor (LocalWorker, [String: Any], String) async throws -> [String: Any] = { worker, request, python in
+        try await worker.call(request, python: python)
+    }
+    var queuedScreenUseCase: QueuedScreenUseCase?
+    var screenCaptureTask: Task<ScreenContext, Error>?
+    struct PausedVoiceInput {
+        let pausedAt: Date
+        var wake: VoiceRouter
+        var interaction: VoiceInteraction?
+        var audio: AudioRecorder.PausedInput
+        var chunks: [AudioRecorder.Chunk]
+        let transcript: String
+        let recognizedInput: String
+        let reply: String
+        let replyTarget: ThreadReplyTarget?
+        let indicator: RelayIndicator
+        var screenRequestIDs = Set<String>()
+        var hasVoiceContext: Bool {
+            interaction != nil || indicator == .receiving || !chunks.isEmpty || !audio.chunks.isEmpty || audio.segmenter.pendingSpeech != nil
+        }
+    }
+    var pausedVoiceInput: PausedVoiceInput?
+    var voiceScreenRequestIDs = Set<String>()
+    private struct VoiceInputCheckpoint {
+        let chunk: AudioRecorder.Chunk
+        let wake: VoiceRouter
+        let interaction: VoiceInteraction?
+        let transcript: String
+        let recognizedInput: String
+        let indicator: RelayIndicator
+    }
+    private var inputCheckpoint: VoiceInputCheckpoint?
+    func commitVoiceInputCheckpoint() { inputCheckpoint = nil }
     private let standbyActivity = StandbyActivity()
     var referenceRecorder: AVAudioRecorder?
     private var lastMeterUpdate = Date.distantPast
@@ -248,8 +285,16 @@ import RelayCore
             catch {
                 if run == epoch {
                     let showError = screenUseCaseActive
+                    let resumeVoice = screenUseCaseActive && listening && queuedScreenUseCase == nil
+                    let paused = pausedVoiceInput
                     fail(error)
                     if showError { showMainWindow?() }
+                    if resumeVoice {
+                        switch error {
+                        case RelayError.unauthorized, RelayError.ambiguousSend: break
+                        default: resumeVoiceAfterScreenUseCase(paused)
+                        }
+                    }
                 }
             }
         }
@@ -274,11 +319,11 @@ import RelayCore
             try await startRecorder(run: run)
         }
     }
-    private func startRecorder(run: UUID) async throws {
+    private func startRecorder(run: UUID, resuming: AudioRecorder.PausedInput? = nil) async throws {
         guard run == epoch, listening else { return }
         recorder.onChunksReady = { [weak self] in Task { @MainActor in self?.receiveChunks(run: run) } }
         recorder.onError = { [weak self] message in Task { @MainActor in
-            guard let self, self.epoch == run else { return }
+            guard let self, self.epoch == run, !self.screenUseCaseActive else { return }
             self.fail(RelayError.message(message))
         } }
         receivedAudio = false
@@ -287,7 +332,7 @@ import RelayCore
             Task { @MainActor in self?.recoverInput(run: run) }
         }
         recorder.onLevel = { [weak self] value in Task { @MainActor in
-            guard let self, self.epoch == run, self.listening else { return }
+            guard let self, self.epoch == run, self.listening, !self.screenUseCaseActive else { return }
             self.receivedAudio = true
             self.lastInputAt = Date()
             guard Date().timeIntervalSince(self.lastMeterUpdate) > 0.15 else { return }
@@ -300,7 +345,7 @@ import RelayCore
         phase = .preparing
         detail = L10n.text("許可済みのマイク入力を開始しています。")
         audioStatus = L10n.text("入力デバイス: \(AVCaptureDevice.default(for: .audio)?.localizedName ?? L10n.text("見つかりません")) — 音声フレーム待ち")
-        try await recorder.start(silenceSeconds: settings.silenceSeconds, minimumRMS: settings.minimumRMS, voiceProcessing: settings.voiceProcessing)
+        try await beginMicrophoneCapture(recorder, settings, resuming)
         logs.record(.microphoneStarted, category: .audio, metrics: [.sampleRate: recorder.inputFormat.rate, .channels: recorder.inputFormat.channels])
         if run != epoch || !listening { recorder.stop() }
         else {
@@ -320,7 +365,7 @@ import RelayCore
         }
     }
     private func recoverInput(run: UUID) {
-        guard run == epoch, listening, recorder.isCapturing else { return }
+        guard run == epoch, listening, !screenUseCaseActive, recorder.isCapturing else { return }
         logs.record(.inputInterrupted, category: .audio, level: .warning)
         guard phase != .sending else {
             // Reconnecting cancels the operation. A POST may already have reached Webex.
@@ -339,6 +384,8 @@ import RelayCore
         recorder.stop()
         worker.shutdown()
         voiceInteraction = nil
+        inputCheckpoint = nil
+        voiceScreenRequestIDs = []
         chunks = []
         processing = false
         wake.reset()
@@ -359,7 +406,7 @@ import RelayCore
         for chunk in recorder.takeChunks() { acceptAudioChunk(chunk) }
     }
     func acceptAudioChunk(_ chunk: AudioRecorder.Chunk) {
-        guard listening, voiceInteraction?.acceptingInput != false,
+        guard listening, !screenUseCaseActive, voiceInteraction?.acceptingInput != false,
               voiceInteraction != nil || [.listening, .recording, .recognizing].contains(phase) else { return }
         guard !chunk.truncated else {
             discardInput(.utteranceDiscarded)
@@ -392,7 +439,7 @@ import RelayCore
     }
     private func processChunks(run: UUID) async {
         defer { if run == epoch { processing = false } }
-        while run == epoch, listening {
+        while run == epoch, listening, !screenUseCaseActive {
             if chunks.isEmpty {
                 guard let voiceInteraction else { return }
                 if voiceInteraction.shouldWait(now: Date(), pending: recorder.pendingSpeech) {
@@ -406,13 +453,17 @@ import RelayCore
             }
             let chunk = chunks.removeFirst()
             if let voiceInteraction, !voiceInteraction.accepts(chunk.speech) { continue }
+            // Re-run only this uncommitted chunk after an interruption. Completed sends are never replayed.
+            inputCheckpoint = VoiceInputCheckpoint(chunk: chunk, wake: wake, interaction: voiceInteraction,
+                transcript: transcript, recognizedInput: recognizedInput, indicator: indicator)
+            defer { if run == epoch { inputCheckpoint = nil } }
             let revision = inputRevision
             do {
                 phase = .recognizing
                 let file = try PrivateStorage.temporaryFile(extension: "wav")
                 defer { try? FileManager.default.removeItem(at: file) }
                 try AudioRecorder.write(chunk.samples, to: file)
-                let result = try await worker.call(WorkerRequest.transcribe(audio: file.path, settings: settings, verifyInline: false), python: settings.pythonPath)
+                let result = try await callVoiceWorker(worker, WorkerRequest.transcribe(audio: file.path, settings: settings, verifyInline: false), settings.pythonPath)
                 guard run == epoch, listening else { return }
                 guard revision == inputRevision else { continue }
                 updateSpeakerDiagnostics(result)
@@ -426,7 +477,7 @@ import RelayCore
                 }
                 if voiceInteraction != nil {
                     if settings.verifiesSpeakerStrictly {
-                        let checked = try await worker.call(WorkerRequest.verifySpeaker(audio: file.path, settings: settings), python: settings.pythonPath)
+                        let checked = try await callVoiceWorker(worker, WorkerRequest.verifySpeaker(audio: file.path, settings: settings), settings.pythonPath)
                         guard run == epoch, listening else { return }
                         guard revision == inputRevision else { continue }
                         updateSpeakerDiagnostics(checked)
@@ -446,17 +497,7 @@ import RelayCore
                     phase = .listening
                     detail = settings.verifiesSpeakerStrictly ? L10n.text("合言葉を検出しました。続けて指示を話してください。指示の音声で本人照合します。") : L10n.text("合言葉を受け付けました。続けて指示を話してください。短い指示も受け付けます。")
                     if mode == .threadReply { detail = L10n.text("返信用の合言葉を受け付けました。スレッドに返す内容を話してください。") }
-                    armTimeout?.cancel()
-                    armTimeout = Task {
-                        try? await Task.sleep(nanoseconds: UInt64(settings.commandWaitSeconds * 1_000_000_000))
-                        guard !Task.isCancelled, run == epoch else { return }
-                        if !processing && chunks.isEmpty {
-                            wake.reset()
-                            indicator = .idle
-                            detail = L10n.text("指示の受付を区切り、次の合言葉を待っています。常時待受は継続しています。")
-                            logs.record(.commandWaitExpired, category: .audio)
-                        }
-                    }
+                    scheduleCommandTimeout(run: run)
                 case .command(let command, let mode):
                     indicator = .receiving
                     logs.record(.wakeDetected, category: .audio)
@@ -464,7 +505,7 @@ import RelayCore
                     if settings.verifiesSpeakerStrictly {
                         phase = .recognizing
                         detail = L10n.text("送信前に指示の音声で本人照合しています。")
-                        let checked = try await worker.call(WorkerRequest.verifySpeaker(audio: file.path, settings: settings), python: settings.pythonPath)
+                        let checked = try await callVoiceWorker(worker, WorkerRequest.verifySpeaker(audio: file.path, settings: settings), settings.pythonPath)
                         guard run == epoch, listening else { return }
                         guard revision == inputRevision else { continue }
                         updateSpeakerDiagnostics(checked)
@@ -496,7 +537,12 @@ import RelayCore
         chunks = []
         try await Task.sleep(nanoseconds: 1_000_000_000)
         guard run == epoch else { return }
+        if listening, let paused = pausedVoiceInput {
+            try await restoreVoiceInput(paused, run: run)
+            return
+        }
         screenUseCaseActive = false
+        voiceScreenRequestIDs = []
         indicator = .idle
         if listening { try await startRecorder(run: run) }
         else {
@@ -509,6 +555,96 @@ import RelayCore
         Permissions.configureScreen()
         refreshPermissions()
     }
+    /// Preserve raw audio and committed voice state before cancelling recognition or waiting for a POST.
+    func pauseVoiceInputForScreenUseCase() {
+        guard listening, pausedVoiceInput == nil else { return }
+        let pausedAt = Date()
+        let checkpoint = phase == .sending ? nil : inputCheckpoint
+        let audio = recorder.pause()
+        pausedVoiceInput = PausedVoiceInput(pausedAt: pausedAt, wake: checkpoint?.wake ?? wake,
+            interaction: checkpoint == nil ? voiceInteraction : checkpoint?.interaction,
+            audio: audio, chunks: (checkpoint.map { [$0.chunk] } ?? []) + chunks,
+            transcript: checkpoint?.transcript ?? transcript, recognizedInput: checkpoint?.recognizedInput ?? recognizedInput,
+            reply: reply, replyTarget: lastReplyTarget, indicator: checkpoint?.indicator ?? indicator)
+        pausedVoiceInput?.screenRequestIDs = voiceScreenRequestIDs
+        armTimeout?.cancel()
+        inputWatchdog?.cancel()
+        chunks = []
+        inputRevision = UUID()
+        wake.reset()
+        level = 0
+    }
+
+    func resumeVoiceAfterScreenUseCase(_ paused: PausedVoiceInput?) {
+        pausedVoiceInput = paused
+        listening = true
+        screenUseCaseActive = true
+        phase = .preparing
+        launch { [self] run in try await resumeAfterInteraction(run: run) }
+    }
+
+    private func restoreVoiceInput(_ original: PausedVoiceInput, run: UUID) async throws {
+        var paused = original
+        let duration = max(0, Date().timeIntervalSince(paused.pausedAt))
+        paused.wake.shift(by: duration)
+        paused.interaction?.shift(by: duration)
+        paused.audio.shift(by: duration)
+        wake = paused.wake
+        voiceInteraction = paused.interaction
+        voiceScreenRequestIDs = paused.screenRequestIDs
+        let pendingChunks = paused.chunks.map { $0.shifted(by: duration) } + paused.audio.chunks
+        chunks = []
+        paused.audio.chunks = []
+        transcript = paused.transcript
+        recognizedInput = paused.recognizedInput
+        // Preserve the new screen reply in the conversation; restore a voice reply target while its input continues.
+        if voiceInteraction != nil || paused.indicator == .receiving { lastReplyTarget = paused.replyTarget }
+        if reply.isEmpty { reply = paused.reply }
+        pausedVoiceInput = nil
+        // A microphone restart failure must stop once, rather than repeatedly trying to resume.
+        do { try await startRecorder(run: run, resuming: paused.audio) }
+        catch { screenUseCaseActive = false; throw error }
+        guard run == epoch, listening else { return }
+        screenUseCaseActive = false
+        indicator = paused.indicator
+        // Apply the same length and backlog limits as live input, without launching a task per chunk.
+        processing = true
+        for chunk in pendingChunks { acceptAudioChunk(chunk) }
+        processing = false
+        scheduleCommandTimeout(run: run)
+        if voiceInteraction != nil || indicator == .receiving || !chunks.isEmpty || paused.audio.segmenter.pendingSpeech != nil {
+            detail = L10n.text("音声受付を再開しました。途中の指示に続けて話してください。")
+        }
+        if !chunks.isEmpty || voiceInteraction != nil {
+            processing = true
+            launch { [self] next in
+                if let interaction = voiceInteraction, interaction.draft == nil {
+                    try await prepare(command: interaction.text, run: next, forceConfirmation: false, mode: interaction.mode)
+                } else if let interaction = voiceInteraction, interaction.needsDelivery,
+                          let draft = interaction.draft, !draft.settings.confirmBeforeSending {
+                    try await send(draft, run: next)
+                }
+                guard next == epoch else { return }
+                await processChunks(run: next)
+            }
+        }
+    }
+
+    private func scheduleCommandTimeout(run: UUID) {
+        armTimeout?.cancel()
+        guard let remaining = wake.remaining(now: Date(), timeout: settings.commandWaitSeconds) else { return }
+        armTimeout = Task {
+            try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+            guard !Task.isCancelled, run == epoch, !screenUseCaseActive else { return }
+            if !processing && chunks.isEmpty {
+                wake.reset()
+                indicator = .idle
+                detail = L10n.text("指示の受付を区切り、次の合言葉を待っています。常時待受は継続しています。")
+                logs.record(.commandWaitExpired, category: .audio)
+            }
+        }
+    }
+
     func stop() {
         indicator = .idle
         logs.record(.stopped)
@@ -516,6 +652,12 @@ import RelayCore
         cancelRoomSearch()
         epoch = UUID()
         operation?.cancel()
+        queuedScreenUseCase?.capture.cancel()
+        queuedScreenUseCase = nil
+        screenCaptureTask?.cancel()
+        screenCaptureTask = nil
+        pausedVoiceInput = nil
+        inputCheckpoint = nil
         armTimeout?.cancel()
         inputWatchdog?.cancel()
         recorder.stop()
@@ -535,6 +677,7 @@ import RelayCore
         chunks = []
         wake.reset()
         voiceInteraction = nil
+        voiceScreenRequestIDs = []
         screenUseCaseActive = false
         level = 0
         draft = nil

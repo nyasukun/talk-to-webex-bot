@@ -18,6 +18,19 @@ import RelayCore
         }
     }
 
+    static func dispatchExisting(arguments: [String]) -> Int32 {
+        do {
+            guard arguments.count == 1, let id = UUID(uuidString: arguments[0]) else {
+                throw RelayError.message("Usage: --dispatch-raycast-request <UUID>")
+            }
+            try deliver(id: id, applicationPath: Bundle.main.bundleURL.path)
+            return 0
+        } catch {
+            print(error.localizedDescription)
+            return 1
+        }
+    }
+
     private static func restoredApplication() throws -> String {
         let started = Date(), deadline = started.addingTimeInterval(3)
         var previousPID: pid_t?, stableSince = started
@@ -35,7 +48,7 @@ import RelayCore
     }
 
     static func submit(id: UUID, expectedBundleID: String, directory: URL = PrivateStorage.directory,
-                       dispatch: (URL, String) throws -> Void = dispatchURL) throws -> String {
+                       dispatch: @MainActor (URL, String) throws -> Void = dispatchURL) throws -> String {
         let data = try PrivateFiles.read(directory.appendingPathComponent("screen-use-cases.json"))
         let catalog = try JSONDecoder().decode(RaycastBridge.Catalog.self, from: data)
         guard catalog.version == 1, catalog.applicationPath.hasPrefix("/"), catalog.applicationPath.hasSuffix(".app"),
@@ -70,9 +83,37 @@ import RelayCore
     }
 
     private static func dispatchURL(_ url: URL, applicationPath: String) throws {
+        guard let id = RaycastBridge.requestID(from: url) else { throw RelayError.message("Invalid request ID") }
+        try deliver(id: id, applicationPath: applicationPath)
+    }
+
+    static func deliver(id: UUID, applicationPath: String, directory: URL = PrivateStorage.directory,
+                        ensureRunning: @MainActor (String) throws -> Void = ensureRunning) throws {
+        let requests = directory.appendingPathComponent("raycast-requests")
+        let request = requests.appendingPathComponent("\(id.uuidString).json")
+        let response = requests.appendingPathComponent("\(id.uuidString).response.json")
+        guard FileManager.default.fileExists(atPath: request.path) else { throw RelayError.message("Missing request") }
+        try ensureRunning(applicationPath)
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: response.path) { return }
+            DistributedNotificationCenter.default().postNotificationName(RaycastBridge.requestNotification,
+                object: applicationPath, userInfo: ["request": id.uuidString], deliverImmediately: true)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        throw RelayError.message(L10n.text("アプリの応答を確認できません。Talk to Webex botで状態を確認してください。自動再実行はしません。"))
+    }
+
+    private static func ensureRunning(_ applicationPath: String) throws {
+        let url = URL(fileURLWithPath: applicationPath).standardizedFileURL
+        // Most requests take this branch: do not send reopen/open-URL Apple Events to
+        // a running SwiftUI app, even with `open -g`, since its scene may become active.
+        if NSWorkspace.shared.runningApplications.contains(where: { !$0.isTerminated && $0.bundleURL?.standardizedFileURL == url }) { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-g", "-a", applicationPath, url.absoluteString]
+        // Only a stopped app needs Launch Services. Launch hidden without a URL, then
+        // deliver the same nonce until its notification observer is ready.
+        process.arguments = ["-g", "-j", "-a", applicationPath]
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {

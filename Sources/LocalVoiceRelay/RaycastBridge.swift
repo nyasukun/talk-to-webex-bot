@@ -1,8 +1,8 @@
 import AppKit
 import RelayCore
 
-/// Raycast lists a local catalog and submits a one-use request file before opening the URL.
-/// A URL alone cannot trigger a capture or send; prompts and destinations always come from saved settings.
+/// Legacy URL entry point; current Raycast commands use distributed notifications so
+/// Launch Services does not reopen or activate the SwiftUI window for each request.
 @MainActor final class RelayApplicationDelegate: NSObject, NSApplicationDelegate {
     static weak var raycastBridge: RaycastBridge?
 
@@ -11,7 +11,8 @@ import RelayCore
     }
 }
 
-@MainActor final class RaycastBridge {
+@MainActor final class RaycastBridge: NSObject {
+    static let requestNotification = Notification.Name("org.localvoicerelay.raycast.request")
     struct Entry: Codable {
         let id: UUID
         let name: String
@@ -35,18 +36,29 @@ import RelayCore
     }
     private var onRun: ((Request) throws -> Void)?
     let directory: URL
+    let applicationPath: String
 
-    init(directory: URL = PrivateStorage.directory) { self.directory = directory }
+    init(directory: URL = PrivateStorage.directory, applicationPath: String = Bundle.main.bundleURL.path) {
+        self.directory = directory
+        self.applicationPath = applicationPath
+        super.init()
+    }
+
+    deinit { DistributedNotificationCenter.default().removeObserver(self) }
 
     func start(onRun: @escaping (Request) throws -> Void) {
         self.onRun = onRun
         // SwiftUI installs its event handlers after AppModel.init. Use the lifecycle delegate
         // instead of an Apple Event handler that SwiftUI can replace during launch.
         RelayApplicationDelegate.raycastBridge = self
+        let center = DistributedNotificationCenter.default()
+        center.removeObserver(self)
+        center.addObserver(self, selector: #selector(receiveRequest(_:)), name: Self.requestNotification,
+                           object: applicationPath, suspensionBehavior: .deliverImmediately)
     }
 
     func publish(_ settings: Settings) throws {
-        let catalog = Catalog(version: 1, applicationPath: Bundle.main.bundleURL.path, useCases: settings.screenUseCases.filter(\.enabled).map {
+        let catalog = Catalog(version: 1, applicationPath: applicationPath, useCases: settings.screenUseCases.filter(\.enabled).map {
             Entry(id: $0.id, name: $0.name, readReplies: $0.readReplies, hotkey: $0.hotkey?.title,
                   confirmBeforeSending: $0.confirmBeforeSending)
         })
@@ -119,6 +131,19 @@ import RelayCore
 
     func open(_ url: URL) {
         guard let id = Self.requestID(from: url) else { return }
+        process(id)
+    }
+
+    @objc private func receiveRequest(_ notification: Notification) {
+        guard notification.object as? String == applicationPath,
+              let raw = notification.userInfo?["request"] as? String, let id = UUID(uuidString: raw),
+              FileManager.default.fileExists(atPath: directory.appendingPathComponent("raycast-requests/\(id.uuidString).json").path) else { return }
+        // Notifications may be repeated while the app launches. A consumed nonce is ignored,
+        // preserving its original acknowledgment and never repeating a send.
+        process(id)
+    }
+
+    private func process(_ id: UUID) {
         let response: Response
         do {
             let request = try consume(id)

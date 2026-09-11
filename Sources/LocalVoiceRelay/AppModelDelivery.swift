@@ -22,7 +22,7 @@ extension AppModel {
 
     func prepareVoiceCommand(_ command: String, mode: VoiceMode, speech: SpeechInterval, run: UUID) async throws {
         guard run == epoch else { return }
-        voiceInteraction = VoiceInteraction(command: command, speech: speech, seconds: settings.continuationSeconds)
+        voiceInteraction = VoiceInteraction(command: command, speech: speech, seconds: settings.continuationSeconds, mode: mode)
         transcript = command
         try await prepare(command: command, run: run, forceConfirmation: false, mode: mode)
     }
@@ -30,6 +30,7 @@ extension AppModel {
         guard run == epoch, var interaction = voiceInteraction,
               let draft = try interaction.append(text, speech: speech) else { return }
         voiceInteraction = interaction
+        commitVoiceInputCheckpoint()
         transcript = interaction.text
         if !draft.settings.confirmBeforeSending { try await send(draft, run: run) }
         guard run == epoch else { return }
@@ -45,7 +46,7 @@ extension AppModel {
         voiceInteraction?.closeInput()
         recorder.stop()
         level = 0
-        let prepared = voiceInteraction?.draft, delivery = voiceDelivery, sentIDs = voiceSentIDs
+        let prepared = voiceInteraction?.draft, delivery = voiceDelivery, sentIDs = voiceSentIDs.union(voiceScreenRequestIDs)
         voiceInteraction = nil
         phase = .waiting
         if let prepared, prepared.settings.confirmBeforeSending {
@@ -80,6 +81,7 @@ extension AppModel {
         let draft = Draft(body: body, screen: screen, settings: snapshot, thread: target)
         if voiceInteraction != nil {
             voiceInteraction?.setDraft(draft)
+            commitVoiceInputCheckpoint()
             if !snapshot.confirmBeforeSending { try await send(draft, run: run) }
             guard run == epoch else { return }
             showContinuationStatus()
@@ -102,9 +104,12 @@ extension AppModel {
         launch { [self] run in try await send(draft, run: run) }
     }
     func cancelDraft() {
+        let resumeVoice = screenUseCaseActive && listening
+        let paused = pausedVoiceInput
         draft = nil
         stop()
         detail = L10n.text("送信を取り消しました。")
+        if resumeVoice { resumeVoiceAfterScreenUseCase(paused) }
     }
     func send(_ draft: Draft, run: UUID) async throws {
         let client = try await connection(), snapshot = draft.settings
@@ -128,10 +133,14 @@ extension AppModel {
         if voiceInteraction != nil {
             voiceInteraction?.recordDelivery(Delivery(client: client, sent: sent, baseline: baseline, settings: snapshot))
             replyMonitoringStatus = snapshot.readReplies ? L10n.text("追加発話の受付後、最後に送ったメッセージの返信だけを監視します。") : L10n.text("返信の読み上げはOFFです。監視しません。")
+            beginQueuedScreenUseCase()
             return
         }
+        let relatedVoiceRequests = (pausedVoiceInput?.interaction?.sentIDs ?? []).union(pausedVoiceInput?.screenRequestIDs ?? [])
+        if pausedVoiceInput?.hasVoiceContext == true { pausedVoiceInput?.screenRequestIDs.insert(sent.id) }
         if snapshot.readReplies {
-            try await monitor(client: client, sent: sent, baseline: baseline, settings: snapshot, run: run)
+            try await monitor(client: client, sent: sent, baseline: baseline, settings: snapshot, run: run,
+                              supersededRequestIDs: relatedVoiceRequests.union(voiceScreenRequestIDs))
         }
         guard run == epoch else { return }
         try await resumeAfterInteraction(run: run)

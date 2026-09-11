@@ -7,6 +7,9 @@ import AppKit
         if CommandLine.arguments.dropFirst().first == "--run-screen-use-case" {
             exit(RaycastCommand.run(arguments: Array(CommandLine.arguments.dropFirst(2))))
         }
+        if CommandLine.arguments.dropFirst().first == "--dispatch-raycast-request" {
+            exit(RaycastCommand.dispatchExisting(arguments: Array(CommandLine.arguments.dropFirst(2))))
+        }
         LocalVoiceRelayApp.main()
     }
 }

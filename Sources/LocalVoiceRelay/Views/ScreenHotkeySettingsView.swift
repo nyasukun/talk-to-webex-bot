@@ -64,7 +64,7 @@ struct ScreenHotkeySettingsView: View {
                 Text(model.raycastBridge.scriptsDirectory.path).font(.caption).textSelection(.enabled)
                 if !model.raycastStatus.isEmpty { Text(model.raycastStatus).font(.caption).foregroundStyle(.secondary) }
             } header: { Text("Raycast") } footer: {
-                Text(L10n.text("処理中の再入力は受け付けません。画面を取得できないときは送信を止めます。読み上げオフの返信はWebexで確認してください。"))
+                Text(L10n.text("音声受付中も使えます。音声を一時停止して途中の指示を保持し、画面処理後に続きを受け付けます。画面処理中の再入力は受け付けません。読み上げオフの返信はWebexで確認してください。"))
             }
         }.formStyle(.grouped)
     }

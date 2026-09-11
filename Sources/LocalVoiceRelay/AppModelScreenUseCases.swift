@@ -2,6 +2,11 @@ import AppKit
 import RelayCore
 
 extension AppModel {
+    struct QueuedScreenUseCase {
+        let useCase: ScreenUseCase
+        let settings: Settings
+        let capture: Task<ScreenContext, Error>
+    }
     func registerScreenHotkeys() {
         guard !isPreview else { return }
         hotkeyErrors = globalHotkeys.replace(with: savedSettings.screenUseCases) { [weak self] id in
@@ -14,8 +19,11 @@ extension AppModel {
     }
 
     var canRunScreenUseCase: Bool {
-        guard !busy, !referenceRecording, !screenUseCaseActive, voiceInteraction == nil else { return false }
-        return [.stopped, .error].contains(phase) || (listening && phase == .listening && indicator == .idle)
+        guard !busy, !referenceRecording, !screenUseCaseActive, draft == nil else { return false }
+        if [.stopped, .error].contains(phase) { return true }
+        guard listening else { return false }
+        if [.listening, .recording, .recognizing].contains(phase) { return true }
+        return voiceInteraction != nil && [.preparing, .sending].contains(phase)
     }
 
     func runRaycastUseCase(_ request: RaycastBridge.Request) throws {
@@ -23,7 +31,7 @@ extension AppModel {
         guard savedSettings.screenUseCases.contains(where: { $0.id == request.useCaseID && $0.enabled }) else {
             throw RelayError.message(L10n.text("このユースケースは削除または無効化されています。Raycastの一覧を更新してください。"))
         }
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == request.expectedBundleID else {
+        guard frontmostBundleID() == request.expectedBundleID else {
             throw ScreenContext.Unavailable.changedWindow
         }
         runScreenUseCase(id: request.useCaseID, expectedBundleID: request.expectedBundleID)
@@ -33,10 +41,41 @@ extension AppModel {
         guard canRunScreenUseCase,
               let useCase = savedSettings.screenUseCases.first(where: { $0.id == id && $0.enabled }) else { return }
         let snapshot = savedSettings
+        let capture = Task { @MainActor [captureScreen, frontmostBundleID] in
+            try Task.checkCancellation()
+            if let expectedBundleID, frontmostBundleID() != expectedBundleID {
+                throw ScreenContext.Unavailable.changedWindow
+            }
+            return try await captureScreen()
+        }
+        if phase == .sending {
+            // Capture the selected window now, but never cancel an in-flight voice POST.
+            screenUseCaseActive = true
+            pauseVoiceInputForScreenUseCase()
+            queuedScreenUseCase = QueuedScreenUseCase(useCase: useCase, settings: snapshot, capture: capture)
+            detail = L10n.text("音声受付を一時停止しました。送信中の処理が完了したら画面操作を実行します。")
+            return
+        }
+        beginScreenUseCase(useCase, settings: snapshot, capture: capture)
+    }
+
+    func beginQueuedScreenUseCase() {
+        guard let queued = queuedScreenUseCase else { return }
+        queuedScreenUseCase = nil
+        // The voice request completed successfully while its microphone was paused.
+        pausedVoiceInput?.interaction = voiceInteraction
+        beginScreenUseCase(queued.useCase, settings: queued.settings, capture: queued.capture)
+    }
+
+    private func beginScreenUseCase(_ useCase: ScreenUseCase, settings snapshot: Settings, capture: Task<ScreenContext, Error>) {
         let resumeListening = listening
+        pauseVoiceInputForScreenUseCase()
+        let paused = pausedVoiceInput
         stop()
-        // Pause an existing voice standby, but never start the microphone for a screen-only session.
+        // Invalidate old callbacks, retaining a checkpoint that can resume without duplicating a send.
         listening = resumeListening
+        pausedVoiceInput = paused
+        screenCaptureTask = capture
         screenUseCaseActive = true
         phase = .preparing
         indicator = .receiving
@@ -44,12 +83,10 @@ extension AppModel {
         launch { [self] run in
             try ScreenUseCase.validate([useCase])
             guard !snapshot.roomID.isEmpty else { throw RelayError.message(L10n.text("送信先DMを選んでください。")) }
-            if let expectedBundleID, NSWorkspace.shared.frontmostApplication?.bundleIdentifier != expectedBundleID {
-                throw ScreenContext.Unavailable.changedWindow
-            }
-            let screen = try await captureScreen()
+            let screen = try await capture.value
             try Task.checkCancellation()
             guard run == epoch else { return }
+            screenCaptureTask = nil
             logs.record(.screenCaptured, category: .permissions)
             let draft = try screenDraft(useCase: useCase, screen: screen, settings: snapshot)
             transcript = useCase.prompt

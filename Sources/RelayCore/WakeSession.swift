@@ -5,6 +5,10 @@ public struct WakeSession {
     private var armedAt: Date?
     public init() {}
     public mutating func reset() { armedAt = nil }
+    public mutating func shift(by seconds: TimeInterval) { armedAt = armedAt?.addingTimeInterval(seconds) }
+    public func remaining(now: Date, timeout: TimeInterval) -> TimeInterval? {
+        armedAt.map { max(0, timeout - now.timeIntervalSince($0)) }
+    }
     public func isArmed(now: Date, timeout: TimeInterval) -> Bool {
         armedAt.map { now.timeIntervalSince($0) < timeout } ?? false
     }

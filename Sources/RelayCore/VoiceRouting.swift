@@ -8,6 +8,10 @@ public struct VoiceRouter {
     private var session = WakeSession()
     private var mode = VoiceMode.message
     public init() {}
+    public mutating func shift(by seconds: TimeInterval) { session.shift(by: seconds) }
+    public func remaining(now: Date, timeout: TimeInterval) -> TimeInterval? {
+        session.remaining(now: now, timeout: timeout)
+    }
     public mutating func reset() {
         session.reset()
         mode = .message

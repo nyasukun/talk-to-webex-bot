@@ -5,6 +5,40 @@ import RelayCore
 @testable import LocalVoiceRelay
 
 @MainActor struct RaycastBridgeTests {
+    @Test func distributedRequestsAcknowledgeWithoutReopeningTheAppAndIgnoreDuplicateNotifications() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let appPath = root.appendingPathComponent("Example.app").path
+        let bridge = RaycastBridge(directory: root, applicationPath: appPath)
+        var received = 0
+        bridge.start { _ in received += 1 }
+        let id = UUID(), requests = root.appendingPathComponent("raycast-requests")
+        let requestPath = requests.appendingPathComponent("\(id.uuidString).json")
+        let responsePath = requests.appendingPathComponent("\(id.uuidString).response.json")
+        let request = RaycastBridge.Request(useCaseID: ScreenUseCase.defaults[0].id,
+            createdAt: Date().timeIntervalSince1970, expectedBundleID: "com.apple.TextEdit")
+        try PrivateFiles.write(JSONEncoder().encode(request), to: requestPath)
+        func notify(path: String) {
+            DistributedNotificationCenter.default().postNotificationName(RaycastBridge.requestNotification,
+                object: path, userInfo: ["request": id.uuidString], deliverImmediately: true)
+        }
+        notify(path: appPath + ".other")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(received == 0 && FileManager.default.fileExists(atPath: requestPath.path))
+        notify(path: appPath)
+        for _ in 0..<100 {
+            if FileManager.default.fileExists(atPath: responsePath.path) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let response = try JSONDecoder().decode(RaycastBridge.Response.self, from: PrivateFiles.read(responsePath))
+        #expect(response.accepted && received == 1)
+        #expect(!FileManager.default.fileExists(atPath: requestPath.path))
+        for _ in 0..<3 { notify(path: appPath) }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(received == 1)
+        #expect(try JSONDecoder().decode(RaycastBridge.Response.self, from: PrivateFiles.read(responsePath)).accepted)
+    }
+
     @Test func delegateDeliversURLsAndCommandReceivesAcknowledgmentExactlyOnce() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

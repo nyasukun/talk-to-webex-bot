@@ -93,4 +93,31 @@ struct UtteranceContinuationTests {
             #expect(throws: (any Error).self) { try custom.validate() }
         }
     }
+
+    @Test func aLongPausePreservesPartialAudioAndFreezesContinuationAndWakeDeadlines() throws {
+        var audio = AudioSegmenter()
+        _ = audio.ingest([Float](repeating: 0.1, count: 8000), isVoiced: true,
+            endingAt: start.addingTimeInterval(1), silenceSeconds: 1.2)
+        var continuation = UtteranceContinuation(text: "first", speech: interval(0, 0.5), seconds: 3.6)
+        var wake = VoiceRouter()
+        #expect(wake.accept("computer", phrases: "computer", replyPhrases: "reply", now: start, timeout: 5) == .armed(.message))
+        // Several minutes of screen work do not add silence, truncate audio or expire the voice command.
+        audio.shift(by: 300)
+        continuation.shift(by: 300)
+        wake.shift(by: 300)
+        _ = audio.ingest([Float](repeating: 0.2, count: 8000), isVoiced: true,
+            endingAt: start.addingTimeInterval(301.5), silenceSeconds: 1.2)
+        let output = audio.ingest([Float](repeating: 0, count: 19200), isVoiced: false,
+            endingAt: start.addingTimeInterval(302.7), silenceSeconds: 1.2)
+        let chunk = try #require(output)
+        #expect(chunk.samples.prefix(8000).allSatisfy { $0 == 0.1 })
+        #expect(chunk.samples.dropFirst(8000).prefix(8000).allSatisfy { $0 == 0.2 })
+        #expect(chunk.samples.count == 35200 && !chunk.truncated)
+        #expect(chunk.speech == interval(300.5, 301.5))
+        #expect(continuation.accepts(chunk.speech))
+        let appended = continuation.append("continued", speech: chunk.speech)
+        #expect(appended)
+        #expect(continuation.text == "first\ncontinued")
+        #expect(wake.accept("instruction", phrases: "computer", replyPhrases: "reply", now: start.addingTimeInterval(303), timeout: 5) == .command("instruction", .message))
+    }
 }
